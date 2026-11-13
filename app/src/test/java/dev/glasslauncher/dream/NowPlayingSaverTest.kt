@@ -70,6 +70,21 @@ class NowPlayingSaverTest {
         saver.stop()
     }
 
+    /** P326 review: a hard-edged cover (a bright disc on a dark field) must blur into a gradient, not stair-steps. */
+    @Test fun theBackdropIsASmoothBlurOfTheCover() {
+        val disc = android.graphics.Bitmap.createBitmap(512, 512, android.graphics.Bitmap.Config.ARGB_8888).also {
+            android.graphics.Canvas(it).apply { drawColor(0xFF101020.toInt()); drawCircle(256f, 256f, 130f, android.graphics.Paint().apply { color = 0xFFFFE680.toInt() }) }
+        }
+        val blurred = softBackdrop(disc)
+        val px = IntArray(blurred.width * blurred.height).also { blurred.getPixels(it, 0, blurred.width, 0, 0, blurred.width, blurred.height) }
+        var worst = 0
+        for (y in 0 until blurred.height) for (x in 0 until blurred.width - 1) {
+            val a = px[y * blurred.width + x]; val b = px[y * blurred.width + x + 1]
+            for (shift in intArrayOf(16, 8, 0)) worst = maxOf(worst, Math.abs((a shr shift and 255) - (b shr shift and 255)))
+        }
+        assertTrue("neighbouring pixels differ by at most a few levels (worst $worst)", worst <= 8)
+    }
+
     @Test fun progressIsAFractionOfTheLength() {
         val n = np(playing = false)
         assertEquals(0.25f, progressOf(n), 0.001f)

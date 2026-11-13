@@ -37,6 +37,34 @@ private fun Context.nowPlayingFlow(): StateFlow<NowPlaying?> = NowPlayingFixture
 internal fun progressOf(np: NowPlaying, now: Long = SystemClock.elapsedRealtime()): Float =
     if (np.durationMs > 0) (np.positionNow(now) / np.durationMs.toFloat()).coerceIn(0f, 1f) else 0f
 
+/**
+ * A soft blur of [art] for the backdrop: the cover scaled down to a small grid, box-blurred there (two passes, so the result has no
+ * edges to show), then scaled up smoothly. A blur of a small bitmap costs almost nothing and is made once per track.
+ */
+internal fun softBackdrop(art: Bitmap, grid: Int = 48, out: Int = 192, radius: Int = 5): Bitmap {
+    val small = Bitmap.createScaledBitmap(art, grid, grid, true)
+    val px = IntArray(grid * grid).also { small.getPixels(it, 0, grid, 0, 0, grid, grid) }
+    val tmp = IntArray(grid * grid)
+    repeat(2) { boxBlur(px, tmp, grid, radius, horizontal = true); boxBlur(tmp, px, grid, radius, horizontal = false) }
+    val blurred = Bitmap.createBitmap(px, grid, grid, Bitmap.Config.ARGB_8888)
+    return Bitmap.createScaledBitmap(blurred, out, out, true)
+}
+
+/** One pass of a box blur of [radius] along rows or columns, edges clamped. */
+private fun boxBlur(src: IntArray, dst: IntArray, n: Int, radius: Int, horizontal: Boolean) {
+    val window = 2 * radius + 1
+    for (line in 0 until n) {
+        fun at(i: Int) = src[if (horizontal) line * n + i.coerceIn(0, n - 1) else i.coerceIn(0, n - 1) * n + line]
+        var r = 0; var g = 0; var b = 0
+        for (i in -radius..radius) { val c = at(i); r += c shr 16 and 255; g += c shr 8 and 255; b += c and 255 }
+        for (i in 0 until n) {
+            dst[if (horizontal) line * n + i else i * n + line] = (255 shl 24) or ((r / window) shl 16) or ((g / window) shl 8) or (b / window)
+            val add = at(i + radius + 1); val drop = at(i - radius)
+            r += (add shr 16 and 255) - (drop shr 16 and 255); g += (add shr 8 and 255) - (drop shr 8 and 255); b += (add and 255) - (drop and 255)
+        }
+    }
+}
+
 /** A thin progress line: two rounded bars, drawn only when the fraction changes. */
 private class ProgressLine(context: Context) : View(context) {
     private val track = android.graphics.Paint().apply { color = Color.argb(60, 255, 255, 255) }
@@ -182,8 +210,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig) 
                 title.text = n.title; artist.text = n.artist.orEmpty()
                 if (n.art != null && !n.artIsIcon) {
                     art.setImageBitmap(n.art); art.scaleType = ImageView.ScaleType.CENTER_CROP
-                    // Tiny, then smoothly up again: a soft blur of the cover for the price of two small bitmaps.
-                    backdrop.setImageBitmap(Bitmap.createScaledBitmap(Bitmap.createScaledBitmap(n.art, 24, 24, true), 192, 192, true))
+                    backdrop.setImageBitmap(softBackdrop(n.art))
                 } else {
                     art.setImageResource(R.drawable.ic_music_note); art.scaleType = ImageView.ScaleType.CENTER_INSIDE
                     backdrop.setImageDrawable(null)
