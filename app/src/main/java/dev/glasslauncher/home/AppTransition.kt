@@ -1,5 +1,6 @@
 package dev.glasslauncher.home
 
+import androidx.compose.ui.graphics.graphicsLayer
 import android.app.ActivityOptions
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -481,12 +482,34 @@ fun AppTransitionLayer(t: AppTransition, warmSource: ImageBitmap?) {
     if (!t.warmed && warmSource != null) {
         val glyph = remember { ImageBitmap(4, 4) }
         val grey = remember { ColorFilter.tint(Color(0xFFB9BBC2)) }
+        // The tile art the zoom draws is a HARDWARE bitmap, sampled through another texture type than the software blur: warming
+        // with the blur left the art's program to compile on the first open after every start (~100 ms, P321). Warm with a hardware
+        // copy, drawn as the zoom draws the art: through an image shader, under a scale, at full and part alpha.
+        val hw = remember(warmSource) { warmSource.asAndroidBitmap().copy(android.graphics.Bitmap.Config.HARDWARE, false)?.asImageBitmap() ?: warmSource }
         Canvas(Modifier.size(2.dp)) {
             // The same operations as the zoom, at an alpha too low to see.
             drawImage(warmSource, srcOffset = IntOffset.Zero, srcSize = IntSize(warmSource.width, warmSource.height), dstSize = IntSize(2, 2), alpha = 0.01f)
             drawRoundRect(ShaderBrush(ImageShader(warmSource)), size = Size(2f, 2f), cornerRadius = CornerRadius(1f), alpha = 0.01f)
+            withTransform({ scale(2f / hw.width, 2f / hw.height, Offset.Zero) }) {
+                drawRoundRect(ShaderBrush(ImageShader(hw)), size = Size(hw.width.toFloat(), hw.height.toFloat()), cornerRadius = CornerRadius(hw.width / 8f, hw.height / 8f), alpha = 0.01f)
+            }
             drawRoundRect(Color.Black, Offset.Zero, Size(2f, 2f), CornerRadius(1f), alpha = 0.01f)
             drawImage(glyph, dstOffset = IntOffset.Zero, dstSize = IntSize(2, 2), alpha = 0.01f, colorFilter = grey)
+        }
+        // And at the zoom's own sizes and full alpha (Skia picks the op by size and radius), under a layer too faint to see.
+        Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = 0.01f }) {
+            val tile = (dev.glasslauncher.ui.Metrics().tileRadius * dev.glasslauncher.ui.FOCUSED_SCALE).toPx()
+            for ((k, radius) in listOf(0.2f to tile, 0.6f to 18.dp.toPx())) {
+                val w = size.width * k; val h = size.height * k
+                val sx = w / hw.width; val sy = h / hw.height
+                withTransform({ translate((size.width - w) / 2f, (size.height - h) / 2f); scale(sx, sy, Offset.Zero) }) {
+                    drawRoundRect(ShaderBrush(ImageShader(hw)), size = Size(hw.width.toFloat(), hw.height.toFloat()), cornerRadius = CornerRadius(radius / sx, radius / sy))
+                }
+                // The launch window's colour fill and its tinted glyph, as the zoom draws them.
+                drawRoundRect(Color(0xFF15161A), Offset((size.width - w) / 2f, (size.height - h) / 2f), Size(w, h), CornerRadius(radius), alpha = 0.6f)
+                drawRoundRect(Color(0xFF15161A), Offset((size.width - w) / 2f, (size.height - h) / 2f), Size(w, h), CornerRadius(radius))
+                drawImage(glyph, dstOffset = IntOffset((size.width / 2f).toInt(), (size.height / 2f).toInt()), dstSize = IntSize((w * 0.2f).toInt(), (w * 0.12f).toInt()), alpha = 0.5f, colorFilter = grey)
+            }
         }
         androidx.compose.runtime.LaunchedEffect(Unit) { withFrameNanos { }; withFrameNanos { }; t.warmed = true }
     }
