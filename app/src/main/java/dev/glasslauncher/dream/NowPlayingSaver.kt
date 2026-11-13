@@ -168,14 +168,15 @@ class NowPlayingCardView(context: Context, private val autoHideMs: Long = 0L) : 
     private val tick = object : Runnable {
         override fun run() { np?.let { progress.fraction = progressOf(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
     }
-    private val move = object : Runnable { override fun run() { corner = (corner + 1) % 4; place(); handler.postDelayed(this, MOVE_MS) } }
+    private val move = object : Runnable { override fun run() { corner = (corner + 1) % 2; place(); handler.postDelayed(this, MOVE_MS) } }
     private val fadeAway = Runnable { card.animate().alpha(0f).setDuration(600).withEndAction { card.visibility = GONE }.start() }
 
     init { addView(card, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)); place() }
 
     private fun place() {
         val margin = context.dp(48f).toInt()
-        val g = when (corner) { 0 -> Gravity.BOTTOM or Gravity.START; 1 -> Gravity.TOP or Gravity.END; 2 -> Gravity.BOTTOM or Gravity.END; else -> Gravity.TOP or Gravity.START }
+        // Bottom right and top left only: the clock is top right and the Aerials location bottom left.
+        val g = if (corner == 0) Gravity.BOTTOM or Gravity.END else Gravity.TOP or Gravity.START
         card.layoutParams = (card.layoutParams as LayoutParams).apply { gravity = g; setMargins(margin, margin, margin, margin) }
     }
 
@@ -254,13 +255,8 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
             addView(remaining, LinearLayout.LayoutParams(context.dp(64f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT))
         }, LinearLayout.LayoutParams(context.dp(560f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(22f).toInt() })
     }
-    /** The time of day, small, in a corner while a track is up (the big clock takes over when nothing plays). */
-    /** A dark pill under the small clock: over a bright effect a ribbon or a bar can cross it, and legibility should come from the backdrop, not a shadow. */
-    private val cornerClock = ClockText(context, "h:mm a", "HH:mm", h24).apply {
-        setTextColor(Color.argb(230, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); visibility = GONE
-        background = GradientDrawable().apply { setColor(Color.argb(120, 0, 0, 0)); cornerRadius = context.dp(18f) }
-        setPadding(context.dp(14f).toInt(), context.dp(5f).toInt(), context.dp(14f).toInt(), context.dp(5f).toInt())
-    }
+    /** The shared saver clock (Aerials' look), top right, while a track is up; the big clock below takes over when nothing plays. */
+    private val cornerClock = SaverClock(context, h24)
     private val clock = ClockText(context, "h:mm", "HH:mm", h24).apply { setTextColor(Color.argb(150, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 64f); gravity = Gravity.CENTER; visibility = GONE }
     private var np: NowPlaying? = null
     private var shownKey: String? = null
@@ -287,7 +283,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         addView(note, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = context.dp(36f).toInt() })
         addView(content, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         addView(clock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
-        addView(cornerClock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { setMargins(0, context.dp(36f).toInt(), context.dp(48f).toInt(), 0) })
+        addView(cornerClock, SaverClock.params(context))
     }
 
     /** The line and the two times under the cover. A track of unknown length shows neither time. */
@@ -320,14 +316,14 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         }
         if (visualizerMode) {
             // The visualizer owns the screen: only the small clock and (from its own view) the corner card are on top of it.
-            clock.shown(false); cornerClock.shown(true); content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE
+            clock.shown(false); cornerClock.shown(cfg.showClock); content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE
             if (shownKey != n.key || shownArt !== n.art) {
                 shownKey = n.key; shownArt = n.art
                 n.art?.takeIf { !n.artIsIcon }?.let { bars?.setTint(lightTint(it)) }
             }
             return
         }
-        clock.shown(false); cornerClock.shown(true); content.visibility = VISIBLE; backdrop.visibility = VISIBLE; dim.visibility = VISIBLE
+        clock.shown(false); cornerClock.shown(cfg.showClock); content.visibility = VISIBLE; backdrop.visibility = VISIBLE; dim.visibility = VISIBLE
         if (shownKey != n.key || shownArt !== n.art) {
             // A track change dissolves: the content fades out, is swapped, and fades back in. The swap is its own delayed task, not the end
             // action of the fade: a player sends a burst of updates around a change, and each one used to restart the fade and drop the swap.

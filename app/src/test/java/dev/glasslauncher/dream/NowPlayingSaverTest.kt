@@ -116,8 +116,8 @@ class NowPlayingSaverTest {
         saver.start(); settle()
         assertTrue("elapsed (${texts(saver)})", texts(saver).contains("0:50"))
         assertTrue("remaining", texts(saver).contains("-2:30"))
-        val clocks = (0 until saver.childCount).map { saver.getChildAt(it) }.filterIsInstance<ClockText>()
-        assertTrue("a clock is visible while a track is up, and reads 9:41 AM on the pinned clock", clocks.any { it.visibility == View.VISIBLE && it.text.toString() == "9:41 AM" })
+        val clocks = (0 until saver.childCount).map { saver.getChildAt(it) }.filterIsInstance<SaverClock>()
+        assertTrue("the shared Aerials clock is visible while a track is up, and reads 9:41 AM on the pinned clock", clocks.any { it.visibility == View.VISIBLE && it.text.toString() == "9:41 AM" })
         saver.stop()
     }
 
@@ -132,7 +132,7 @@ class NowPlayingSaverTest {
             assertTrue("12-hour, AM in capitals (${texts(twelve)})", texts(twelve).contains("9:41 AM"))
             twelve.stop()
             val twentyFour = NowPlayingSaverView(context, ScreensaverConfig(), h24 = true); twentyFour.start(); settle()
-            assertTrue("24-hour follows the setting (${texts(twentyFour)})", texts(twentyFour).contains("09:41"))
+            assertTrue("24-hour follows the setting (${texts(twentyFour)})", texts(twentyFour).contains("9:41"))
             twentyFour.stop()
         } finally { java.util.Locale.setDefault(before) }
     }

@@ -24,6 +24,8 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
     private val renderer = Renderer()
     private var running = false
     private var lastRequest = 0L
+    /** Every style but Grid keeps the last picture and draws on top of it (the old media-player look): two textures, swapped each frame. */
+    private val feedback = style != VisualizerStyle.Grid
     private val frame = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (!running) return
@@ -71,6 +73,12 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         val audio = ByteArray(AudioAnalysis.BANDS * 3)
         val tint = floatArrayOf(0.95f, 0.95f, 0.95f)
         var bass = 0f; var mid = 0f; var high = 0f; var beat = 0f
+        // what the shaders see: the latest capture (20 a second) eased in each frame (30 a second), so nothing moves in steps
+        private val shown = FloatArray(AudioAnalysis.BANDS * 3)
+        private var bassS = 0f; private var midS = 0f; private var highS = 0f; private var beatS = 0f
+        private var bassSlow = 0f; private var kick = 0f
+        private var flow = 0f; private var spin = 0f
+        private var lastFrame = 0L
         private var program = 0
         private var blit = 0
         private var audioTex = 0
@@ -93,14 +101,14 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
                 VisualizerStyle.Scope -> VizShaders.SCOPE
             }
             program = link(VizShaders.VERTEX, fragment)
-            if (style == VisualizerStyle.Warp) blit = link(VizShaders.VERTEX, VizShaders.BLIT)
-            if (program == 0 || (style == VisualizerStyle.Warp && blit == 0)) return fail("shader did not build")
+            if (feedback) blit = link(VizShaders.VERTEX, VizShaders.BLIT)
+            if (program == 0 || (feedback && blit == 0)) return fail("shader did not build")
             val t = IntArray(1)
             GLES20.glGenTextures(1, t, 0); audioTex = t[0]
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, audioTex)
             filters()
             GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE, AudioAnalysis.BANDS, 3, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, null)
-            if (style == VisualizerStyle.Warp) {
+            if (feedback) {
                 GLES20.glGenTextures(2, fboTex, 0); GLES20.glGenFramebuffers(2, fbo, 0)
                 for (i in 0..1) {
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[i]); filters()
@@ -120,15 +128,32 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             if (failed) return
             val t0 = SystemClock.uptimeMillis()
             val time = ((t0 - started) % 3_600_000L) / 1000f
-            val b: Float; val m: Float; val h: Float; val beatNow: Float; val tn: FloatArray
-            synchronized(lock) { audioBytes.clear(); audioBytes.put(audio); audioBytes.position(0); b = bass; m = mid; h = high; beatNow = beat; tn = tint.copyOf() }
+            val dt = if (lastFrame == 0L) 0.033f else ((t0 - lastFrame) / 1000f).coerceIn(0.005f, 0.1f)
+            lastFrame = t0
+            synchronized(lock) {
+                // fast to rise (a hit shows on the frame it is heard), a little slower to fall
+                for (i in 0 until shown.size) {
+                    val target = (audio[i].toInt() and 255) / 255f
+                    shown[i] += (target - shown[i]) * (if (target > shown[i]) 0.8f else 0.35f)
+                }
+                bassS = ease(bassS, bass); midS = ease(midS, mid); highS = ease(highS, high); beatS = ease(beatS, beat)
+            }
+            for (i in 0 until shown.size) audioBytes.put(i, (shown[i] * 255f).toInt().coerceIn(0, 255).toByte())
+            audioBytes.position(0)
+            // a kick is the bass rising above where it has been lately; it lands at once and fades in about a quarter of a second
+            bassSlow += (bassS - bassSlow) * 0.06f
+            kick = maxOf(kick * 0.80f, ((bassS - bassSlow) * 3.5f).coerceIn(0f, 1f))
+            // motion that quickens with the music is integrated, never multiplied into the clock, so it speeds up and slows down without a jump
+            flow = (flow + dt * (0.35f + 1.6f * bassS)) % FLOW_PERIOD
+            spin = (spin + dt * (0.05f + 0.35f * midS)) % TWO_PI
+            val tn = synchronized(lock) { tint.copyOf() }
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, audioTex)
             GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, AudioAnalysis.BANDS, 3, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, audioBytes)
-            if (style == VisualizerStyle.Warp) {
+            if (feedback) {
                 val next = 1 - ping
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[next]); GLES20.glViewport(0, 0, W, H)
-                use(program, time, b, m, h, beatNow, tn)
+                use(program, time, tn)
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[ping])
                 GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPrev"), 1)
                 quad(program)
@@ -140,11 +165,13 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
                 quad(blit)
                 ping = next
             } else {
-                use(program, time, b, m, h, beatNow, tn)
+                use(program, time, tn)
                 quad(program)
             }
             if (stats) measure(t0)
         }
+
+        private fun ease(from: Float, to: Float) = from + (to - from) * (if (to > from) 0.8f else 0.35f)
 
         private var costSum = 0L; private var costMax = 0L; private var frames = 0
 
@@ -159,15 +186,18 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             }
         }
 
-        private fun use(p: Int, time: Float, b: Float, m: Float, h: Float, beatNow: Float, tn: FloatArray) {
+        private fun use(p: Int, time: Float, tn: FloatArray) {
             GLES20.glUseProgram(p)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(p, "uRes"), W.toFloat(), H.toFloat())
             GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uTime"), time)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uFlow"), flow)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uSpin"), spin)
             GLES20.glUniform3f(GLES20.glGetUniformLocation(p, "uTint"), tn[0], tn[1], tn[2])
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uBass"), b)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uMid"), m)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uHigh"), h)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uBeat"), beatNow)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uBass"), bassS)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uMid"), midS)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uHigh"), highS)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uBeat"), beatS)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uKick"), kick)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(p, "uAudio"), 0)
         }
 
@@ -217,5 +247,8 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, name, "0") == "1"
         }.getOrDefault(false)
         const val FRAME_MS = 33L
+        /** 20 pi: every sine of the flow counter in the shaders (in tenths) and every hue (in whole turns of 1/FP) comes round at once, so the wrap is invisible. */
+        private const val FLOW_PERIOD = 62.831852f
+        private const val TWO_PI = 6.2831855f
     }
 }

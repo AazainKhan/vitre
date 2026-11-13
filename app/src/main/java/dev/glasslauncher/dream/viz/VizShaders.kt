@@ -19,12 +19,17 @@ internal object VizShaders {
         varying vec2 vUv;
         uniform vec2 uRes;
         uniform highp float uTime;
+        uniform highp float uFlow;   // integrated each frame: quickens with the bass, never steps back; wraps every 20 pi, so use it as k * FP in a hue and k/10 in a sine
+        uniform highp float uSpin;   // an angle, 0 to 2 pi, turning faster with the mids
         uniform vec3 uTint;
         uniform float uBass;
         uniform float uMid;
         uniform float uHigh;
         uniform float uBeat;
+        uniform float uKick;         // a bass hit: jumps up the frame it lands, falls away in about a quarter of a second
         uniform sampler2D uAudio;
+        uniform sampler2D uPrev;     // the last picture (the feedback styles; unused by Grid)
+        const float FP = 0.0159155;  // 1 / 20 pi
         float spec(float x) { return texture2D(uAudio, vec2(clamp(x, 0.0, 1.0), 0.1667)).r; }
         float wave(float x) { return texture2D(uAudio, vec2(clamp(x, 0.0, 1.0), 0.5)).r * 2.0 - 1.0; }
         float peak(float x) { return texture2D(uAudio, vec2(clamp(x, 0.0, 1.0), 0.8333)).r; }
@@ -34,11 +39,35 @@ internal object VizShaders {
         vec3 hue(float t) { return clamp(abs(fract(t + vec3(0.0, 0.3333, 0.6667)) * 6.0 - 3.0) - 1.0, 0.0, 1.0); }
         vec2 centred(vec2 uv) { return (uv - 0.5) * vec2(uRes.x / uRes.y, 1.0); }
         mat2 rot(float a) { float c = cos(a); float s = sin(a); return mat2(c, -s, s, c); }
+        // The last picture at a centred point. Past the edge it is mirrored, so a zoom out folds the border back in instead of smearing it.
+        vec3 prevAt(vec2 p) {
+            vec2 uv = p / vec2(uRes.x / uRes.y, 1.0) + 0.5;
+            return texture2D(uPrev, abs(mod(uv + 1.0, 2.0) - 1.0)).rgb;
+        }
+        // What every feedback frame does to the last picture: fade it towards black, let its hue creep, keep it saturated.
+        vec3 settle(vec3 c, float k) {
+            c = max(c * k - 0.006, 0.0);
+            c = mix(c, c.gbr, 0.015);
+            float l = dot(c, vec3(0.333));
+            return max(mix(vec3(l), c, 1.04), 0.0);
+        }
+        // Brightness past 1 is scaled down with the hue kept, not clipped channel by channel (which turns every hot spot white).
+        vec3 fit(vec3 c) { return c / max(1.0, max(c.r, max(c.g, c.b))); }
+        // A slow swirl over the whole screen (the per-pixel sines of the old media-player presets), so the picture flows rather than just scales.
+        vec2 swirl(vec2 p, float s) {
+            return s * vec2(sin(p.y * 7.0 + uFlow * 0.9) + sin(p.y * 3.0 - uFlow * 0.4), cos(p.x * 6.0 - uFlow * 0.7) + cos(p.x * 2.5 + uFlow * 0.3));
+        }
+        // 0 in the middle of the screen, 1 at its edge, so a style can draw where the edges are
+        float edge(vec2 p) { return clamp(1.0 - min(0.5 - abs(p.y), 0.8889 - abs(p.x)) * 2.0, 0.0, 1.0); }
     """
 
-    /** Spectrum: a mirrored equaliser, bars growing from the middle line to the edges of the screen, in a rolling rainbow. */
+    /** Spectrum: a mirrored equaliser; each frame is pulled out from the middle line, so the bars stream to the top and bottom of the screen as glowing curtains. */
     const val SPECTRUM = HEAD + """
         void main() {
+            vec2 p = centred(vUv);
+            vec2 q = vec2(p.x, p.y * (0.962 - 0.035 * uKick)) + swirl(p, 0.0035);
+            vec3 col = settle(prevAt(q), 0.935);
+            vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
             const float N = 64.0;
             float cell = floor(vUv.x * N);
             float fx = fract(vUv.x * N);
@@ -48,57 +77,56 @@ internal object VizShaders {
             float h = 0.04 + lv * 0.96;
             float gap = smoothstep(0.0, 0.14, fx) * smoothstep(1.0, 0.86, fx);
             float body = step(dy, h) * gap;
-            vec3 c = pal(x * 0.9 + uTime * 0.06 + lv * 0.25);
-            vec3 col = c * body * (0.6 + 0.9 * (1.0 - dy / max(h, 0.001)));
-            col += c * exp(-abs(dy - h) * 16.0) * gap * 0.7;
+            vec3 c = pal(x * 0.9 + uFlow * FP * 2.0 + lv * 0.25);
+            add += c * body * (0.35 + 0.65 * (1.0 - dy / max(h, 0.001))) * (0.7 + 0.5 * uKick);
+            add += c * exp(-abs(dy - h) * 14.0) * gap * 0.45;
             float pk = 0.04 + peak(x) * 0.96;
-            col += vec3(1.0) * step(abs(dy - pk), 0.012) * gap;
-            col += pal(uTime * 0.04) * 0.10 * (0.5 + uBass) * (1.0 - dy * 0.5);
-            col *= 1.0 + 0.7 * uBeat;
-            gl_FragColor = vec4(col, 1.0);
+            add += vec3(1.0) * step(abs(dy - pk), 0.012) * gap * 0.8;
+            add += pal(uFlow * FP) * 0.05 * (0.4 + uKick) * (1.0 - dy * 0.4);
+            gl_FragColor = vec4(fit(col + add * 0.22), 1.0);
         }
     """
 
-    /** Tunnel: rings and spokes rushing at the viewer from a vanishing point, flashing with the spectrum. */
+    /** Tunnel: the picture falls inward and spins; a frame of spectrum is drawn along the whole border of the screen, so light pours in from the edges. */
     const val TUNNEL = HEAD + """
         void main() {
             vec2 p = centred(vUv);
-            float r = length(p) + 0.001;
-            float a = atan(p.y, p.x);
-            float z = 0.35 / r + uTime * (0.7 + uBass * 1.6);
-            float ang = abs(fract(a / 6.28318 + uTime * 0.02) * 2.0 - 1.0);
-            float s = spec(ang * 0.8);
-            float rings = pow(abs(sin(z * 3.2)), 5.0);
-            float spokes = pow(abs(sin(a * 7.0 + z * 0.8)), 9.0);
-            vec3 c = pal(z * 0.07 + ang * 0.5 + uTime * 0.05);
-            vec3 col = c * (rings * (0.5 + s * 1.8) + spokes * 0.6 * s) * smoothstep(0.0, 0.45, r);
-            col += c * 0.10 * (0.4 + s);
-            col += pal(uTime * 0.1) * exp(-r * 5.0) * (0.5 + uBass * 2.2);
-            col *= 1.0 + 0.9 * uBeat;
-            gl_FragColor = vec4(col, 1.0);
+            vec2 q = rot(0.014 + uKick * 0.02) * p * (1.032 + uKick * 0.045) + swirl(p, 0.005);
+            vec3 col = settle(prevAt(q), 0.915);
+            vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
+            float e = min(0.5 - abs(p.y), 0.8889 - abs(p.x));         // how far inside the border
+            float ang = atan(p.y, p.x) / 6.28318 + 0.5;
+            float lv = spec(abs(fract(ang + uSpin / 6.28318) * 2.0 - 1.0) * 0.85);
+            float depth = 0.03 + lv * 0.30 + uKick * 0.06;
+            vec3 c = pal(ang + uFlow * FP * 2.0);
+            float comb = 0.25 + 0.75 * smoothstep(0.15, 0.55, abs(fract(ang * 40.0) - 0.5) * 2.0);   // bars along the border, so the light has structure
+            add += c * smoothstep(depth, 0.0, e) * (0.4 + 1.2 * lv) * comb;
+            add += pal(ang * 2.0 - uFlow * FP * 3.0) * exp(-abs(e - 0.015 - 0.2 * lv) * 40.0) * 0.5 * lv;
+            add += pal(uFlow * FP) * exp(-length(p) * 5.0) * (0.05 + 0.5 * uKick);
+            gl_FragColor = vec4(fit(col + add * 0.16), 1.0);
         }
     """
 
-    /** Ribbons: six thick ribbons across the whole screen, rolling slowly, each swelling with its slice of the spectrum. */
+    /** Ribbons: four long ribbons across the whole screen; the picture is swirled and eased outward each frame, so they leave silky, fading wakes. */
     const val RIBBONS = HEAD + """
         void main() {
-            vec2 p = rot(uTime * 0.05 + uBass * 0.08) * centred(vUv);
-            vec3 col = vec3(0.0);
-            for (int i = 0; i < 6; i++) {
+            vec2 p = centred(vUv);
+            vec2 q = rot(0.006 + (uMid - 0.2) * 0.02) * p * (0.985 - uKick * 0.025) + swirl(p, 0.006);
+            vec3 col = settle(prevAt(q), 0.925);
+            vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
+            vec2 r = rot(uSpin * 0.4) * p;
+            for (int i = 0; i < 4; i++) {
                 float f = float(i);
-                float band = spec(0.02 + f * 0.15);
-                float amp = 0.13 + band * 0.42 + uBass * 0.08;
-                float k = 1.6 + f * 0.55;
-                float s = 0.4 + f * 0.16;
-                float y = amp * sin(p.x * k + uTime * s + f * 1.9) + 0.45 * amp * sin(p.x * k * 2.1 - uTime * s * 1.3 + f * 0.7);
-                float w = 0.024 + band * 0.060;
-                float d = abs(p.y - y);
-                vec3 c = hue(f * 0.17 + uTime * 0.04 + band * 0.2);
-                col += c * (smoothstep(w, 0.0, d) * 1.1 + 0.35 / (1.0 + d * d * (260.0 - band * 120.0)));
+                float band = spec(0.02 + f * 0.22);
+                float amp = 0.16 + band * 0.44 + uKick * 0.10;
+                float k = 1.7 + f * 0.8;
+                float y = amp * sin(r.x * k + uFlow * (0.4 + f * 0.1) + f * 1.9) + 0.45 * amp * sin(r.x * k * 2.1 - uFlow * 0.3 + f * 0.7);
+                float w = 0.020 + band * 0.050;
+                float d = abs(r.y - y);
+                vec3 c = hue(f * 0.23 + uFlow * FP * 2.0 + band * 0.2);
+                add += c * (smoothstep(w, 0.0, d) * 1.0 + 0.30 / (1.0 + d * d * (260.0 - band * 120.0)));
             }
-            col *= 0.8 + 0.8 * uBeat;
-            col += hue(uTime * 0.03) * 0.07 * (0.5 + uBass);
-            gl_FragColor = vec4(col, 1.0);
+            gl_FragColor = vec4(fit(col + add * 0.14), 1.0);
         }
     """
 
@@ -112,9 +140,9 @@ internal object VizShaders {
                 float t = (uv.y - horizon) / (1.0 - horizon);
                 col = mix(vec3(0.95, 0.25, 0.45), vec3(0.10, 0.02, 0.28), pow(t, 0.55)) * 0.75;
                 vec2 sp = vec2((uv.x - 0.5) * (uRes.x / uRes.y), uv.y - horizon - 0.17);
-                float sr = 0.17 + uBass * 0.06;
+                float sr = 0.17 + uKick * 0.05;
                 float sun = smoothstep(sr, sr - 0.012, length(sp));
-                float stripes = step(0.0, sin((sp.y + uTime * 0.02) * 70.0) + 0.55 + sp.y * 4.0);
+                float stripes = step(0.0, sin((sp.y + uFlow * 0.002) * 70.0) + 0.55 + sp.y * 4.0);
                 col = mix(col, vec3(1.0, 0.85, 0.3) + vec3(0.0, -0.35, 0.1) * (0.5 - sp.y * 2.0), sun * stripes);
             } else {
                 col = vec3(0.06, 0.0, 0.12);
@@ -127,67 +155,67 @@ internal object VizShaders {
             float lines = 0.0;
             vec3 lc = vec3(0.0);
             for (int i = 0; i < 16; i++) {
-                float n = fract(float(i) / 16.0 + uTime * (0.07 + uBass * 0.08));
+                float n = fract(float(i) / 16.0 + uFlow * FP * 10.0);
                 float yb = horizon * (1.0 - pow(n, 1.7));
                 float h = spec(abs(uv.x - 0.5) * 1.8 + float(i) * 0.002) * 0.34 * (0.25 + 0.75 * n);
                 float d = abs(uv.y - (yb + h));
                 float l = exp(-d * (260.0 - n * 120.0)) * (0.30 + 0.9 * n);
-                lc += pal(n * 0.5 + 0.55 + uTime * 0.03) * l;
+                lc += pal(n * 0.5 + 0.55 + uFlow * FP) * l;
             }
             col += lc * (1.0 + 0.8 * uBeat);
             gl_FragColor = vec4(col, 1.0);
         }
     """
 
-    /** Scope: the waveform as a thick neon ring that swells with the bass, in three split colours, with the line across behind it. */
+    /** Scope: the waveform as a big neon ring and a line across the whole screen; each frame is turned and pushed outward, so the echoes spiral out to the corners. */
     const val SCOPE = HEAD + """
         void main() {
             vec2 p = centred(vUv);
+            vec2 q = rot(0.012 + uBeat * 0.01) * p * (0.972 - uKick * 0.03) + swirl(p, 0.004);
+            vec3 col = settle(prevAt(q), 0.925);
+            vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
             float r = length(p);
             float a = atan(p.y, p.x) / 6.28318 + 0.5;
-            float base = 0.24 + uBass * 0.14;
-            vec3 col = vec3(0.0);
+            float base = 0.30 + uKick * 0.16;
             for (int i = 0; i < 3; i++) {
                 float f = float(i);
-                float w = wave(fract(a + f * 0.012)) * 0.16;
+                float w = wave(fract(a + f * 0.012)) * 0.17;
                 float d = abs(r - (base + w));
                 vec3 c = f < 0.5 ? vec3(1.0, 0.15, 0.35) : (f < 1.5 ? vec3(0.15, 1.0, 0.55) : vec3(0.25, 0.45, 1.0));
-                col += c * (exp(-d * 60.0) * 0.95 + exp(-d * 12.0) * 0.28);
+                add += c * (exp(-d * 55.0) * 0.8 + exp(-d * 11.0) * 0.20);
             }
-            float line = abs(p.y - wave(vUv.x) * 0.28);
-            col += pal(uTime * 0.08) * (exp(-line * 55.0) * 0.8 + exp(-line * 10.0) * 0.15);
-            col *= 0.75 + 0.8 * uBeat;
-            col += pal(uTime * 0.05) * 0.06 * (0.5 + uBass);
-            gl_FragColor = vec4(col, 1.0);
+            float line = abs(p.y - wave(vUv.x) * 0.42);
+            add += pal(uFlow * FP * 2.0 + vUv.x * 0.5) * (exp(-line * 60.0) * 0.8 + exp(-line * 10.0) * 0.12);
+            float line2 = abs(p.x - wave(vUv.y) * 0.5);
+            add += pal(uFlow * FP * 2.0 + 0.5 + vUv.y * 0.5) * (exp(-line2 * 60.0) * 0.5 + exp(-line2 * 10.0) * 0.08);
+            gl_FragColor = vec4(fit(col + add * 0.12), 1.0);
         }
     """
 
-    /** Warp, pass 1: the last frame folded into a six-way kaleidoscope, zoomed, turned and faded, with a spiral of waveform and spectrum rays drawn into it. */
+    /** Warp: the picture folded into a six-way kaleidoscope, zoomed, turned and faded each frame, with rings and rays of the music drawn out to the corners. */
     const val WARP_STEP = HEAD + """
-        uniform sampler2D uPrev;
         void main() {
             vec2 p = centred(vUv);
             float r = length(p);
             float a0 = atan(p.y, p.x);
             const float seg = 1.0471976;
-            float a = abs(mod(a0 + uTime * 0.05, seg * 2.0) - seg);
+            float a = abs(mod(a0 + uSpin, seg * 2.0) - seg);
             vec2 q = r * vec2(cos(a), sin(a));
-            q *= 0.972 - uBass * 0.022;
-            q = rot(0.012 + (uMid - 0.3) * 0.025) * q;
-            vec3 prev = texture2D(uPrev, q / vec2(uRes.x / uRes.y, 1.0) + 0.5).rgb;
-            vec3 col = max(prev * (0.945 + 0.02 * uBeat) - 0.006, 0.0);      // fades to black, never to a grey fog
-            col = mix(col, col.gbr, 0.02);                                   // the hue turns slowly as it fades
-            float lum = dot(col, vec3(0.333));
-            col = max(mix(vec3(lum), col, 1.05), 0.0);                       // and stays saturated
-            // a spiral of waveform, and rays of spectrum
-            float ring = 0.10 + uBass * 0.14 + wave(fract(a0 / 6.28318 + 0.5)) * 0.06;
+            q *= 0.968 - uKick * 0.035;
+            q = rot(0.012 + (uMid - 0.3) * 0.03) * q + swirl(p, 0.004);
+            vec3 col = settle(prevAt(q), 0.935);
+            vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
+            float ring = 0.46 + uKick * 0.12 + wave(fract(a0 / 6.28318 + 0.5)) * 0.10;
             float d = abs(r - ring);
-            vec3 ink = pal(uTime * 0.02 + a0 * 0.159);                       // a colour fixed to each direction, so trails stay saturated instead of averaging to grey
+            vec3 ink = pal(uFlow * FP * 2.0 + a0 * 0.159);
             float room = 1.0 - max(col.r, max(col.g, col.b));
-            col += ink * exp(-d * 60.0) * (0.75 + 1.4 * uBeat) * (0.4 + room);
+            add += ink * exp(-d * 50.0) * (0.7 + 1.3 * uBeat) * (0.4 + room);
             float ra = a / seg;
-            col += pal(ra * 0.9 + uTime * 0.03) * spec(ra * 0.7) * smoothstep(0.08, 0.5, r) * 0.10 * (0.3 + room);
-            gl_FragColor = vec4(min(col, vec3(1.0)), 1.0);
+            add += pal(ra * 0.9 + uFlow * FP) * spec(ra * 0.7 + r * 0.25) * smoothstep(0.1, 0.9, r) * 0.22 * (0.3 + room);
+            float d2 = abs(r - (0.16 + uKick * 0.10));
+            add += pal(uFlow * FP * 3.0 + 0.5) * exp(-d2 * 55.0) * 0.5 * (0.4 + room);
+            add += pal(uFlow * FP * 2.0 + 0.2) * exp(-r * 9.0) * (0.04 + 0.5 * uKick);   // a core that flares on the bass, so the middle is never a hole
+            gl_FragColor = vec4(fit(col + add * 0.30), 1.0);
         }
     """
 

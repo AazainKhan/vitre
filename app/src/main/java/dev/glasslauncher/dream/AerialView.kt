@@ -43,7 +43,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
     private val fade = View(context).apply { setBackgroundColor(Color.BLACK) }
     // tvOS-style: a light clock (AM/PM small beside it in 12-hour mode) and a small caption, each with only a soft contact shadow.
     private val location = label(13f, alpha = 0.85f).apply { gravity = Gravity.START; letterSpacing = 0.01f }
-    private val clock = label(26f, alpha = 0.95f).apply { letterSpacing = -0.01f }
+    private val clock = SaverClock(context)
     private var player: ExoPlayer? = null
     private var videos: List<AerialVideo> = emptyList()
 
@@ -61,22 +61,14 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
         addView(location, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
             setMargins(dp(46), 0, 0, dp(36)) // text sits at 56/44 after the shadow padding
         })
-        addView(clock, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
-            setMargins(0, dp(32), dp(46), 0)
-        })
+        addView(clock, SaverClock.params(context))
         location.visibility = if (cfg.showLocation) View.VISIBLE else View.GONE
-        clock.visibility = if (cfg.showClock) View.VISIBLE else View.GONE
     }
 
     override fun start() {
         val app = context.app
         scope.launch {
-            launch {
-                while (true) {
-                    clock.text = AerialClock.text(Date(), DateFormat.is24HourFormat(context))
-                    delay(60_000L - System.currentTimeMillis() % 60_000L + 50)
-                }
-            }
+            clock.shown(cfg.showClock)
             videos = AerialCatalog(context, app.http).videos().playable(cfg.hiddenAerials).shuffled()
             if (videos.isEmpty()) {
                 location.text = "Connect to the internet to download Aerial videos"
@@ -131,6 +123,7 @@ class AerialView(context: Context, private val cfg: ScreensaverConfig, private v
     }
 
     override fun stop() {
+        clock.shown(false)
         scope.cancel()
         player?.release()
         player = null
