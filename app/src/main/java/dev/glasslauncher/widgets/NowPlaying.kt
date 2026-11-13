@@ -173,16 +173,23 @@ object NowPlayingSource {
             var republish: () -> Unit = {}
             val inflight = HashSet<String>()
             val failedAt = HashMap<String, Long>()
-            fun fetchArt(uri: String, pkg: String) {
-                if (!inflight.add(uri)) return
+            // The cover is cached per track AND uri (P324): some apps keep one uri whose bytes change with the track, and a
+            // uri-only key kept the first cover for good. [waitMs] gives such a provider time to switch before it is read.
+            var lastUri: String? = null
+            var lastUriTrack: String? = null
+            fun fetchArt(uri: String, key: String, pkg: String, waitMs: Long) {
+                if (!inflight.add(key)) return
                 val began = SystemClock.elapsedRealtime()
-                val (flight, mine) = ArtStore.begin(uri)
+                val (flight, mine) = ArtStore.begin(key)
                 launch(kotlinx.coroutines.Dispatchers.IO) {
-                    if (mine) ArtStore.finish(uri, flight, ArtFetcher.fetch(context.applicationContext, uri, pkg))
+                    if (mine) {
+                        if (waitMs > 0) kotlinx.coroutines.delay(waitMs)
+                        ArtStore.finish(key, flight, ArtFetcher.fetch(context.applicationContext, uri, pkg))
+                    }
                     val bmp = flight.await()
                     handler.post {
-                        inflight.remove(uri)
-                        if (bmp == null) failedAt[uri] = SystemClock.elapsedRealtime()
+                        inflight.remove(key)
+                        if (bmp == null) failedAt[key] = SystemClock.elapsedRealtime()
                         android.util.Log.i("GlassNowPlaying", "art ${if (bmp != null) "ok" else "failed"} in ${SystemClock.elapsedRealtime() - began} ms")
                         republish()
                     }
@@ -205,9 +212,13 @@ object NowPlayingSource {
                 val shownArt: Bitmap?
                 if (pick.uri != null) {
                     val uri = pick.uri
-                    val hit = ArtStore.cache.get(uri)
-                    val failed = failedAt[uri]?.let { SystemClock.elapsedRealtime() - it < 60_000 } == true
-                    if (hit == null && !failed) fetchArt(uri, c.packageName)
+                    val key = "$track|$uri"
+                    val hit = ArtStore.cache.get(key)
+                    val failed = failedAt[key]?.let { SystemClock.elapsedRealtime() - it < 60_000 } == true
+                    // The same uri as the previous track's: the app may not have switched its cover yet.
+                    val sameUriNewTrack = uri == lastUri && track != lastUriTrack
+                    if (hit == null && !failed) fetchArt(uri, key, c.packageName, if (sameUriNewTrack) 1_500 else 0)
+                    lastUri = uri; lastUriTrack = track
                     // Until the cover lands: the neutral placeholder (never the app's logo, unless the fetch failed).
                     shownArt = hit ?: pick.fallback?.takeIf { failed }?.let { scaled(it) }.also { if (it != null) artIsIcon = true }
                 } else {
