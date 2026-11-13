@@ -113,7 +113,8 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
 
         override fun onDrawFrame(gl: GL10?) {
             if (failed) return
-            val time = (SystemClock.uptimeMillis() - started) / 1000f
+            val t0 = SystemClock.uptimeMillis()
+            val time = ((t0 - started) % 3_600_000L) / 1000f
             val b: Float; val m: Float; val h: Float; val beatNow: Float; val tn: FloatArray
             synchronized(lock) { audioBytes.clear(); audioBytes.put(audio); audioBytes.position(0); b = bass; m = mid; h = high; beatNow = beat; tn = tint.copyOf() }
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -136,6 +137,20 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             } else {
                 use(program, time, b, m, h, beatNow, tn)
                 quad(program)
+            }
+            if (stats) measure(t0)
+        }
+
+        private var costSum = 0L; private var costMax = 0L; private var frames = 0
+
+        /** `setprop debug.vitre.viz.stats 1`: how long the GPU takes per frame (a glFinish after the draw, so only while measuring). */
+        private fun measure(t0: Long) {
+            GLES20.glFinish()
+            val cost = SystemClock.uptimeMillis() - t0
+            costSum += cost; costMax = maxOf(costMax, cost)
+            if (++frames == 120) {
+                android.util.Log.i("VitreViz", "$style ${WIDTH}x$HEIGHT: draw+finish avg ${costSum * 10 / 120 / 10f} ms, max $costMax ms over 120 frames")
+                costSum = 0; costMax = 0; frames = 0
             }
         }
 
@@ -193,6 +208,10 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
 
     companion object {
         /** 1280 x 720, or 960 x 540 with `setprop debug.vitre.viz.small 1` (a device test of how much headroom the GPU has). */
+        private fun prop(name: String) = runCatching {
+            Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, name, "0") == "1"
+        }.getOrDefault(false)
+        private val stats by lazy { prop("debug.vitre.viz.stats") }
         private val small = runCatching {
             Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, "debug.vitre.viz.small", "0") == "1"
         }.getOrDefault(false)

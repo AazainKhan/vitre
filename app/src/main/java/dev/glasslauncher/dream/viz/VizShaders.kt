@@ -18,7 +18,7 @@ internal object VizShaders {
         precision mediump float;
         varying vec2 vUv;
         uniform vec2 uRes;
-        uniform float uTime;
+        uniform highp float uTime;
         uniform vec3 uTint;
         uniform float uBass;
         uniform float uMid;
@@ -30,6 +30,8 @@ internal object VizShaders {
         float peak(float x) { return texture2D(uAudio, vec2(clamp(x, 0.0, 1.0), 0.8333)).r; }
         // a bright cosine palette: every hue at full saturation
         vec3 pal(float t) { return 0.5 + 0.5 * cos(6.28318 * (t + vec3(0.0, 0.33, 0.67))); }
+        // the same colours without a cosine per channel: a triangle wave, for shaders that colour many things per pixel
+        vec3 hue(float t) { return clamp(abs(fract(t + vec3(0.0, 0.3333, 0.6667)) * 6.0 - 3.0) - 1.0, 0.0, 1.0); }
         vec2 centred(vec2 uv) { return (uv - 0.5) * vec2(uRes.x / uRes.y, 1.0); }
         mat2 rot(float a) { float c = cos(a); float s = sin(a); return mat2(c, -s, s, c); }
     """
@@ -77,27 +79,25 @@ internal object VizShaders {
         }
     """
 
-    /** Ribbons: eight thick ribbons across the whole screen, rolling slowly, each swelling with its slice of the spectrum. */
+    /** Ribbons: six thick ribbons across the whole screen, rolling slowly, each swelling with its slice of the spectrum. */
     const val RIBBONS = HEAD + """
         void main() {
             vec2 p = rot(uTime * 0.05 + uBass * 0.08) * centred(vUv);
             vec3 col = vec3(0.0);
-            for (int i = 0; i < 8; i++) {
+            for (int i = 0; i < 6; i++) {
                 float f = float(i);
-                float band = spec(0.02 + f * 0.11);
-                float amp = 0.12 + band * 0.42 + uBass * 0.08;
-                float k = 1.6 + f * 0.45;
-                float s = 0.4 + f * 0.13;
+                float band = spec(0.02 + f * 0.15);
+                float amp = 0.13 + band * 0.42 + uBass * 0.08;
+                float k = 1.6 + f * 0.55;
+                float s = 0.4 + f * 0.16;
                 float y = amp * sin(p.x * k + uTime * s + f * 1.9) + 0.45 * amp * sin(p.x * k * 2.1 - uTime * s * 1.3 + f * 0.7);
-                float w = 0.022 + band * 0.060;
+                float w = 0.024 + band * 0.060;
                 float d = abs(p.y - y);
-                float core = smoothstep(w, 0.0, d);
-                float glow = exp(-d * (14.0 - band * 6.0));
-                vec3 c = pal(f * 0.13 + uTime * 0.04 + band * 0.2);
-                col += c * (core * 1.1 + glow * 0.35);
+                vec3 c = hue(f * 0.17 + uTime * 0.04 + band * 0.2);
+                col += c * (smoothstep(w, 0.0, d) * 1.1 + 0.35 / (1.0 + d * d * (260.0 - band * 120.0)));
             }
             col *= 0.8 + 0.8 * uBeat;
-            col += pal(uTime * 0.03) * 0.07 * (0.5 + uBass);
+            col += hue(uTime * 0.03) * 0.07 * (0.5 + uBass);
             gl_FragColor = vec4(col, 1.0);
         }
     """

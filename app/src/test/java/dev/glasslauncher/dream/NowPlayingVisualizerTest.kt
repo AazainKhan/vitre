@@ -192,6 +192,20 @@ class NowPlayingVisualizerTest {
         saver.stop()
     }
 
+    /** Yin's stick check: a new track's card showed the note glyph and kept it, because the cover arrives after the track and was never swapped in. */
+    @Test fun theCardTakesTheCoverWhenItArrivesAfterTheTrack() {
+        val state = MutableStateFlow<NowPlaying?>(np(playing = true))
+        NowPlayingFixture.state = state
+        val card = NowPlayingCardView(context, autoHideMs = 6_000L)
+        card.start(); idle(500)
+        fun cover() = ((card.getChildAt(0) as android.view.ViewGroup).getChildAt(0) as android.widget.ImageView).drawable
+        val before = cover()
+        state.value = np(playing = true).copy(art = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888))
+        idle(500)
+        assertTrue("the cover that arrives for the same track is shown (${before} -> ${cover()})", cover() !== before && cover() is android.graphics.drawable.BitmapDrawable)
+        card.stop()
+    }
+
     @Test fun withoutTheVisualizerTheCentredLayoutIsUnchanged() {
         NowPlayingFixture.state = MutableStateFlow<NowPlaying?>(np(playing = false))
         val saver = NowPlayingSaverView(context, ScreensaverConfig())

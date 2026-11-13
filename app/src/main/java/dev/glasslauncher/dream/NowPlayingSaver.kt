@@ -194,10 +194,9 @@ class NowPlayingCardView(context: Context, private val autoHideMs: Long = 0L) : 
         handler.removeCallbacks(tick)
         if (n == null || !n.playing) { handler.removeCallbacks(fadeAway); card.animate().alpha(0f).setDuration(300).withEndAction { if (np?.playing != true) card.visibility = GONE }.start(); return }
         val fresh = was?.key != n.key
-        if (fresh) {
-            title.text = n.title; artist.text = n.artist.orEmpty()
-            if (n.art != null) art.setImageBitmap(n.art) else art.setImageResource(R.drawable.ic_music_note)
-        }
+        if (fresh) { title.text = n.title; artist.text = n.artist.orEmpty() }
+        // The cover often arrives a moment after the track: swap it in when it does, not only on a new track.
+        if (fresh || n.art !== was?.art) { if (n.art != null) art.setImageBitmap(n.art) else art.setImageResource(R.drawable.ic_music_note) }
         progress.fraction = progressOf(n)
         // With auto-hide the card appears on a new track or when play starts again, stays a few seconds, and leaves.
         val appears = autoHideMs == 0L || fresh || was?.playing != true
@@ -256,7 +255,12 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         }, LinearLayout.LayoutParams(context.dp(560f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(22f).toInt() })
     }
     /** The time of day, small, in a corner while a track is up (the big clock takes over when nothing plays). */
-    private val cornerClock = ClockText(context, "h:mm a", "HH:mm", h24).apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); visibility = GONE }
+    /** A dark pill under the small clock: over a bright effect a ribbon or a bar can cross it, and legibility should come from the backdrop, not a shadow. */
+    private val cornerClock = ClockText(context, "h:mm a", "HH:mm", h24).apply {
+        setTextColor(Color.argb(230, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); visibility = GONE
+        background = GradientDrawable().apply { setColor(Color.argb(120, 0, 0, 0)); cornerRadius = context.dp(18f) }
+        setPadding(context.dp(14f).toInt(), context.dp(5f).toInt(), context.dp(14f).toInt(), context.dp(5f).toInt())
+    }
     private val clock = ClockText(context, "h:mm", "HH:mm", h24).apply { setTextColor(Color.argb(150, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 64f); gravity = Gravity.CENTER; visibility = GONE }
     private var np: NowPlaying? = null
     private var shownKey: String? = null
