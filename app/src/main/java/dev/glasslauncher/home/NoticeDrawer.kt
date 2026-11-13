@@ -69,7 +69,7 @@ fun NoticeDrawer(cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, 
 
                 else -> {
                     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.CenterEnd) {
-                        PillButton("Clear all", androidx.compose.ui.Modifier.focusRequester(first)) { rows.forEach { NoticeStore.removed(it.key) } }
+                        PillButton("Clear all") { rows.forEach { NoticeStore.removed(it.key) } }
                     }
                     val open = { n: AppNotice ->
                         NoticeStore.removed(n.key)
@@ -79,7 +79,8 @@ fun NoticeDrawer(cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, 
                             ?.let { runCatching { context.startActivity(it) } }
                         close()
                     }
-                    groupNotices(rows).forEach { g -> NoticeGroupView(g, now, open) }
+                    // Focus lands on the newest card, never on Clear all: one Select there would wipe the list.
+                    groupNotices(rows).forEachIndexed { i, g -> NoticeGroupView(g, now, open, if (i == 0) first else null) }
                 }
             }
         }

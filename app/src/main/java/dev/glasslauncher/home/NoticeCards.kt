@@ -62,10 +62,11 @@ private val CardShape = RoundedCornerShape(20.dp)
  * more behind it) that Select opens into the full list, and "Show less" folds again. Select on a card opens its app.
  */
 @Composable
-internal fun NoticeGroupView(group: NoticeGroup, now: Long, open: (AppNotice) -> Unit) {
+internal fun NoticeGroupView(group: NoticeGroup, now: Long, open: (AppNotice) -> Unit, landing: FocusRequester? = null) {
     val many = group.items.size > 1
     var expanded by rememberSaveable(group.pkg) { mutableStateOf(false) }
-    val head = remember { FocusRequester() }
+    val own = remember { FocusRequester() }
+    val head = landing ?: own
     var wasExpanded by remember { mutableStateOf(false) }
     // Folding removes the row that had focus; put it back on the stack's card.
     LaunchedEffect(expanded) {
@@ -148,7 +149,7 @@ private fun NoticeCard(n: AppNotice, now: Long, more: Int, showApp: Boolean, onC
                 .focusable()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            AppIcon(n.pkg, app, fg, focused)
+            AppIcon(n.pkg, app, fg, focused, small = n.icon)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 if (showApp) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -169,19 +170,30 @@ private fun NoticeCard(n: AppNotice, now: Long, more: Int, showApp: Boolean, onC
     }
 }
 
-/** The app's launcher icon in a rounded square; a letter if it is gone. */
+/**
+ * The app's launcher icon in a rounded square. An app with no icon of its own (the system's default stands in for it) shows its
+ * banner, else the notification's small icon (a white glyph, tinted), else a letter.
+ */
 @Composable
-internal fun AppIcon(pkg: String, label: String, ink: Color, focused: Boolean = false, size: Int = 36) {
+internal fun AppIcon(pkg: String, label: String, ink: Color, focused: Boolean = false, size: Int = 36, small: android.graphics.drawable.Icon? = null) {
     val context = LocalContext.current
     val bitmap = remember(pkg) {
-        runCatching { context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull()
+        runCatching {
+            val pm = context.packageManager
+            val info = pm.getApplicationInfo(pkg, 0)
+            val icon = if (info.icon != 0) pm.getApplicationIcon(info) else null
+            val d = icon ?: pm.getApplicationBanner(info)
+            d?.toBitmap(if (icon == null) 171 else 96, 96)?.asImageBitmap()
+        }.getOrNull()
     }
+    val glyph = remember(small, bitmap) { if (bitmap == null) runCatching { small?.loadDrawable(context)?.toBitmap(64, 64)?.asImageBitmap() }.getOrNull() else null }
     val shape = RoundedCornerShape(9.dp)
     if (bitmap != null) {
-        Image(bitmap, contentDescription = null, modifier = Modifier.size(size.dp).clip(shape))
+        Image(bitmap, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.size(size.dp).clip(shape))
     } else {
         Box(Modifier.size(size.dp).clip(shape).background(if (focused) Color.Black.copy(alpha = 0.12f) else LocalPalette.current.rowFill), contentAlignment = Alignment.Center) {
-            Text(label.take(1).uppercase(), style = Type.body, color = ink)
+            if (glyph != null) Image(glyph, contentDescription = null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(ink), modifier = Modifier.size((size * 0.6f).dp))
+            else Text(label.take(1).uppercase(), style = Type.body, color = ink)
         }
     }
 }

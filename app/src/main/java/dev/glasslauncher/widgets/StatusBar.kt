@@ -147,12 +147,22 @@ internal fun Modifier.statusGlass(shape: androidx.compose.ui.graphics.Shape, onL
  */
 @Composable
 private fun NoticeFace(focused: Boolean, onLight: Boolean, count: Int) {
-    androidx.compose.foundation.Canvas(Modifier.size(32.dp)) {
-        val ink = if (onLight) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White
-        val r = size.minDimension * 0.2f
-        val a = if (focused) 1f else 0.82f
-        if (count > 0) drawCircle(ink.copy(alpha = a), r)
-        else drawCircle(ink.copy(alpha = a * 0.85f), r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.4f))
+    val palette = LocalPalette.current
+    // As the search circle: glass at rest, the solid focus fill (and a dark dot) when it has focus.
+    Box(
+        Modifier
+            .size(32.dp)
+            .statusGlass(CircleShape, onLight, halo = false)
+            .then(if (focused) Modifier.background(palette.focusFill, CircleShape) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(32.dp)) {
+            val ink = if (focused) palette.onFocusFill else if (onLight) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White
+            val r = size.minDimension * 0.2f
+            val a = if (focused) 1f else 0.82f
+            if (count > 0) drawCircle(ink.copy(alpha = a), r)
+            else drawCircle(ink.copy(alpha = a * 0.85f), r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.4f))
+        }
     }
 }
 

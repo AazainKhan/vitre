@@ -91,7 +91,7 @@ class NoticeDrawerTest {
     /** An installed app with a label and a coloured icon, so shots show what real apps look like. */
     private fun fakeApp(pkg: String, label: String, color: Int) {
         val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
-        val info = android.content.pm.ApplicationInfo().apply { packageName = pkg; nonLocalizedLabel = label }
+        val info = android.content.pm.ApplicationInfo().apply { packageName = pkg; nonLocalizedLabel = label; icon = if (color != 0) 0x7f000001 else 0 }
         val spm = org.robolectric.Shadows.shadowOf(ctx.packageManager)
         spm.installPackage(android.content.pm.PackageInfo().apply { packageName = pkg; applicationInfo = info })
         spm.setApplicationIcon(pkg, android.graphics.drawable.GradientDrawable().apply { setColor(color); cornerRadius = 14f })
@@ -188,13 +188,53 @@ class NoticeDrawerTest {
             assertTrue("older cards of the stack are folded away", texts().none { it.contains("Cleo") })
             compose.settle()
             compose.onRoot().captureRoboImage(shot("notice-cards-stack"))
-            compose.press(Button.Down)
-            compose.settle()
+            // Focus lands on the stack's newest card (P329), so it is already lifted here.
             compose.onRoot().captureRoboImage(shot("notice-cards-focus"))
             compose.press(Button.Select)
             compose.settle()
             assertTrue("Select opens the stack", texts().any { it.contains("Cleo") } && texts().any { it.contains("Show less") })
             compose.onRoot().captureRoboImage(shot("notice-cards-open"))
+        }
+    }
+
+    /** P329: two from one app are a stack with one card behind it, and focus lands on the newest card (not Clear all). */
+    @Test fun twoFromOneAppStackAndFocusLandsOnTheNewestCard() {
+        TvHarness.setUp()
+        fakeApp("com.chat.app", "Messages", 0xFF34C759.toInt())
+        // An app with no icon of its own (Alexa's media player): the notification's small icon stands in.
+        fakeApp("com.amazon.alexamediaplayer", "Alexa", 0)
+        NoticeStore.onConnected()
+        NoticeStore.posted(notice("Anna", pkg = "com.chat.app", agoMs = 60_000))
+        NoticeStore.posted(notice("Ben", pkg = "com.chat.app", agoMs = 2 * 60_000))
+        NoticeStore.posted(
+            notice("Playing", pkg = "com.amazon.alexamediaplayer", agoMs = 4 * 60_000).copy(
+                icon = android.graphics.drawable.Icon.createWithBitmap(
+                    android.graphics.Bitmap.createBitmap(48, 48, android.graphics.Bitmap.Config.ARGB_8888).also { it.eraseColor(android.graphics.Color.WHITE) },
+                ),
+            ),
+        )
+        ActivityScenario.launch(MainActivity::class.java).use { _ ->
+            openDrawer()
+            assertTrue("two from one app: one card behind the stack", texts().any { it.contains("+1 more") })
+            compose.settle()
+            compose.onRoot().captureRoboImage(shot("notice-cards-landing"))
+            // One Select on landing opens the stack; it must not clear anything.
+            compose.press(Button.Select)
+            compose.settle()
+            assertEquals("Select on the landing card must not clear notices", 3, NoticeStore.count())
+            assertTrue(texts().any { it.contains("Ben") })
+        }
+    }
+
+    /** P329: the dot in the status pill wears the focus fill when it has focus. */
+    @Test fun theNoticesDotShowsItHasFocus() {
+        TvHarness.setUp()
+        ActivityScenario.launch(MainActivity::class.java).use { _ ->
+            compose.waitForHome()
+            assertTrue(walkTo("status-pill", Button.Up))
+            assertTrue(walkTo("status-notices", Button.Left))
+            compose.settle()
+            compose.onRoot().captureRoboImage(shot("status-notices-focused"))
         }
     }
 
