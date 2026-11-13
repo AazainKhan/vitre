@@ -636,6 +636,9 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
     fun open(overlay: Overlay) {
         scope.launch {
             // The app switcher draws Home's baked blur instead; capturing the screen was most of its open cost.
+            // A scene cross-fade still running would be frozen half-way in the capture while Control Center's glass and its
+            // chrome patch sample the incoming scene: tiles tinted by the next hero and a mismatched corner (P320). End it first.
+            if (overlays.isEmpty() && backdrop.previous != null) { backdrop.fade.snapTo(1f); withFrameNanos { } }
             // Control Center draws only the sharp capture: it opens on that, and the blurs land while it grows (P316).
             var added = false
             val early: ((androidx.compose.ui.graphics.ImageBitmap) -> Unit)? = if (overlay == Overlay.ControlCenter) { sharp -> backdrop.overlaySharp = sharp; overlays.add(overlay); added = true } else null

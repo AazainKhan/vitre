@@ -1,5 +1,6 @@
 package dev.glasslauncher.glass
 
+import kotlinx.coroutines.isActive
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -83,6 +84,10 @@ class BackdropState {
         try {
             fade.snapTo(0f)
             fade.animateTo(1f, androidx.compose.animation.core.tween(fadeMs))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // fade.snapTo(1f) from elsewhere (Control Center opening, P320) ends the fade early: that is a finished
+            // swap, so the caller goes on. Only a real cancellation of this coroutine propagates.
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) throw e
         } finally {
             // Also when a newer swap cancels this one mid-fade: a previous left behind made every glass
             // surface (and the backdrop) draw twice for good, and kept its bitmaps alive (perf-gate: 12%
