@@ -85,6 +85,27 @@ class NowPlayingVisualizerTest {
         assertFalse("the saver closed: it is released", src.running)
     }
 
+    /** Yin's stick check: the tall bars rose through the title and the progress line, and the clock state showed a row of flat dashes. */
+    @Test fun barsStayUnderTheTextAndNothingDrawsWhenNotListening() {
+        val src = FakeSource()
+        val layer = VisualizerLayer(context, src)
+        layer.measure(android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY), android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY))
+        layer.layout(0, 0, 1920, 1080)
+        fun topmostInk(): Int {
+            val bmp = android.graphics.Bitmap.createBitmap(1920, 1080, android.graphics.Bitmap.Config.ARGB_8888)
+            layer.draw(android.graphics.Canvas(bmp))
+            for (y in 0 until 1080) for (x in 0 until 1920 step 4) if ((bmp.getPixel(x, y) ushr 24) != 0) return y
+            return -1
+        }
+        assertEquals("not listening: nothing is drawn", -1, topmostInk())
+        layer.ceiling = 780
+        layer.run()
+        repeat(3) { src.push!!.invoke(fft(fromBin = 1, magnitude = 127)); shadowOf(android.os.Looper.getMainLooper()).idle() }    // every bar at full
+        assertTrue("the loudest bars stay below the text (top of ink ${topmostInk()}, ceiling 780)", topmostInk() >= 780)
+        layer.halt()
+        assertEquals("halted: nothing is drawn", -1, topmostInk())
+    }
+
     @Test fun withoutAudioAccessThereIsNoSource() {
         assertEquals(null, defaultSpectrum(context, ScreensaverConfig(visualizer = true)))     // RECORD_AUDIO is not granted here
         assertEquals(null, defaultSpectrum(context, ScreensaverConfig(visualizer = false)))

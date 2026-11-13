@@ -80,6 +80,9 @@ class VisualizerLayer(context: Context, private val source: SpectrumSource, priv
     private var running = false
     private var quietSince = 0L
     private var told = false
+    /** The bars never rise above this y (the bottom of the text they sit under); 0 until the saver has laid out its content. */
+    var ceiling = 0
+        set(v) { if (v != field) { field = v; invalidate() } }
     var tint: Int = Color.WHITE
         set(v) { field = v; paint.color = Color.argb(210, Color.red(v), Color.green(v), Color.blue(v)); invalidate() }
 
@@ -111,10 +114,13 @@ class VisualizerLayer(context: Context, private val source: SpectrumSource, priv
     override fun onDetachedFromWindow() { halt(); super.onDetachedFromWindow() }
 
     override fun onDraw(canvas: Canvas) {
+        // Nothing is drawn unless it is listening: the quiet clock must not show a row of flat bars.
+        if (!running) return
         val n = bars.count
         val slot = width / n.toFloat()
         val gap = slot * 0.28f
-        val maxH = height * 0.30f
+        val room = if (ceiling > 0) height - ceiling - height * 0.06f else height * 0.30f
+        val maxH = room.coerceIn(height * 0.05f, height * 0.30f)
         for (i in 0 until n) {
             val h = (bars.level[i] * maxH).coerceAtLeast(height * 0.004f)
             rect.set(i * slot + gap / 2, height - h - height * 0.04f, (i + 1) * slot - gap / 2, height - height * 0.04f)
