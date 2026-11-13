@@ -70,7 +70,7 @@ class AsciiView(context: Context, private val cfg: ScreensaverConfig) : View(con
         val p = piece ?: return
         val h = p.head
         val cw = (if (h.cell == "square") minOf(width / h.cols, height / h.rows) else minOf(width / h.cols, height / (2 * h.rows))).coerceAtLeast(2)
-        val t = HandlerThread("VitreAscii").also { it.start() }
+        val t = HandlerThread("VitreAscii", android.os.Process.THREAD_PRIORITY_DISPLAY).also { it.start() }
         thread = t
         val handler = Handler(t.looper)
         worker = handler

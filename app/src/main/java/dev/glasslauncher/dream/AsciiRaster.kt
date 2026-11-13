@@ -4,71 +4,78 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
-import java.nio.ByteBuffer
+import java.nio.ShortBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * Draws a piece's cell grid into bitmaps, and only the cells a frame changed: most frames change few (the packs are deltas), so a frame
- * costs a few draws, not a full-screen text draw. A cell is a background rectangle and, if it holds a glyph, a tinted alpha mask of that
- * glyph (one small ALPHA_8 bitmap per glyph, made once; the full block is a plain rectangle). The block characters and Braille come from
- * their geometry, so they meet edge to edge whatever the font does; in a "dots" piece the lower blocks are halftone dots.
+ * Draws a piece's cell grid, and only the cells a frame changed: most frames change few (the packs are deltas), so a frame costs a
+ * few tile copies, not a full-screen text draw. The picture is a plain 16-bit pixel array. A cell is a tile (the glyph in its colour
+ * on the background, made once per glyph and colour from an alpha mask) copied in row by row with System.arraycopy: no Canvas call per
+ * cell, which on the stick cost more than the blit itself. Once per frame the array is copied into a bitmap in one go.
+ * The block characters and Braille come from their geometry, so they meet edge to edge whatever the font does; in a "dots"
+ * piece the lower blocks are halftone dots.
  *
- * Two buffers (RGB_565: half the memory and upload of ARGB), so a frame can be drawn off the UI thread while the other is on show.
- * Each frame draws the cells the buffer is missing: the ones the frame before it changed, and its own.
+ * Two bitmaps (RGB_565: half the memory and upload of ARGB), so a frame can be drawn off the UI thread while the other is on show.
  */
 class AsciiRaster(piece: AsciiPiece, private val cellW: Int, private val cellH: Int) {
     private val head = piece.head
-    private val cells = head.cols * head.rows
-    private val bitmaps = Array(2) { Bitmap.createBitmap(head.cols * cellW, head.rows * cellH, Bitmap.Config.RGB_565).also { it.eraseColor(BACKGROUND) } }
-    private val canvases = Array(2) { Canvas(bitmaps[it]) }
+    private val cols = head.cols
+    private val stride = head.cols * cellW
+    private val pixels = ShortArray(stride * head.rows * cellH)
+    private val bitmaps = Array(2) { Bitmap.createBitmap(stride, head.rows * cellH, Bitmap.Config.RGB_565).also { it.eraseColor(BACKGROUND) } }
     private var back = 0
-    private val previous = IntArray(cells)
-    private var previousCount = 0
-    private val stamp = IntArray(cells)
-    private var round = 0
     private val dots = head.look == "dots" && head.cell == "square"
     private val colors = IntArray(63) { i ->
         val raw = if (i == 0) null else head.palette.getOrNull(i - 1)
         val c = raw?.let { runCatching { android.graphics.Color.parseColor(it) }.getOrNull() } ?: DEFAULT_INK
         if (dots && i > 0) lift(c) else c
     }
-    private val background = Paint().apply { color = BACKGROUND; style = Paint.Style.FILL }
-    private val ink = Paint()
-    private val masks = HashMap<Char, Bitmap?>()
+    private val glyphIndex = HashMap<Char, Int>()
+    private var tiles = arrayOfNulls<ShortArray>(0)
     private val glyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.MONOSPACE; textSize = cellH * 0.78f; textAlign = Paint.Align.CENTER; color = -1 }
 
-    /** Draws [frames]' current frame into the buffer that is not on show, and returns that buffer (now the one to show). */
+    /** Draws the cells [frames] changed into the picture, copies it into the bitmap that is not on show, and returns that bitmap. */
     fun draw(frames: AsciiPiece.Frames): Bitmap {
-        val canvas = canvases[back]
-        round++
-        for (k in 0 until previousCount) { val i = previous[k]; stamp[i] = round; paint(canvas, i, frames) }
-        for (k in 0 until frames.dirtyCount) { val i = frames.dirty[k]; if (stamp[i] != round) paint(canvas, i, frames) }
-        System.arraycopy(frames.dirty, 0, previous, 0, frames.dirtyCount)
-        previousCount = frames.dirtyCount
+        for (k in 0 until frames.dirtyCount) {
+            val i = frames.dirty[k]
+            val tile = tile(frames.text[i], (frames.color[i].toInt() and 255).coerceAtMost(62))
+            val x0 = i % cols * cellW
+            var at = i / cols * cellH * stride + x0
+            var from = 0
+            for (row in 0 until cellH) { System.arraycopy(tile, from, pixels, at, cellW); from += cellW; at += stride }
+        }
         val shown = bitmaps[back]
+        shown.copyPixelsFromBuffer(ShortBuffer.wrap(pixels))
         back = 1 - back
         return shown
     }
 
-    val width get() = bitmaps[0].width
-    val height get() = bitmaps[0].height
+    val width get() = stride
+    val height get() = head.rows * cellH
 
-    private fun paint(canvas: Canvas, i: Int, frames: AsciiPiece.Frames) {
-        val l = (i % head.cols * cellW).toFloat()
-        val t = (i / head.cols * cellH).toFloat()
-        canvas.drawRect(l, t, l + cellW, t + cellH, background)
-        val ch = frames.text[i]
-        if (ch == ' ') return
-        ink.color = colors[(frames.color[i].toInt() and 255).coerceAtMost(62)]
-        if (ch == '█') { canvas.drawRect(l, t, l + cellW, t + cellH, ink); return }
-        val mask = masks.getOrPut(ch) { render(ch)?.let { alpha8(it) } } ?: return
-        canvas.drawBitmap(mask, l, t, ink)
+    /** The tile for [ch] in colour [color], made on first use. */
+    private fun tile(ch: Char, color: Int): ShortArray {
+        val g = glyphIndex.getOrPut(ch) { glyphIndex.size }
+        val slot = g * 63 + color
+        if (slot >= tiles.size) tiles = tiles.copyOf(maxOf(slot + 1, tiles.size * 2, 63 * 8))
+        return tiles[slot] ?: makeTile(ch, colors[color]).also { tiles[slot] = it }
     }
 
-    private fun alpha8(m: ByteArray): Bitmap = Bitmap.createBitmap(cellW, cellH, Bitmap.Config.ALPHA_8).also { it.copyPixelsFromBuffer(ByteBuffer.wrap(m)) }
+    private fun makeTile(ch: Char, ink: Int): ShortArray {
+        val t = ShortArray(cellW * cellH)
+        val mask = if (ch == ' ') null else if (ch == '\u2588') FULL else render(ch)
+        if (mask == null) return t   // all background: 0 is black in RGB_565
+        val r = ink shr 16 and 255; val g = ink shr 8 and 255; val b = ink and 255
+        for (p in t.indices) {
+            val a = if (mask === FULL) 255 else mask[p].toInt() and 255
+            val rr = r * a / 255; val gg = g * a / 255; val bb = b * a / 255
+            t[p] = (((rr shr 3) shl 11) or ((gg shr 2) shl 5) or (bb shr 3)).toShort()
+        }
+        return t
+    }
 
     /** The alpha mask of [ch] at the cell size; null for nothing to draw. */
     private fun render(ch: Char): ByteArray? {
@@ -125,6 +132,7 @@ class AsciiRaster(piece: AsciiPiece, private val cellW: Int, private val cellH: 
     }
 
     companion object {
+        private val FULL = ByteArray(0)
         const val BACKGROUND = 0xFF000000.toInt()
         const val DEFAULT_INK = 0xFFD8DEE9.toInt()
 
