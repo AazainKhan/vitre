@@ -135,9 +135,10 @@ private fun rounded(context: Context, radiusDp: Float) = object : ViewOutlinePro
 /**
  * The glass Now Playing card (P326): a small card that floats over the screensaver while music plays (a dark, translucent card with a
  * faint edge). It is not on screen when nothing plays or the music is paused, and nothing ticks then. It moves to another corner every
- * few minutes so no part of the picture sits in one place for hours.
+ * few minutes so no part of the picture sits in one place for hours. With [autoHideMs] (the visualizer's track info) it shows when the track
+ * changes or play starts, then fades away after that long and stays away until the next track.
  */
-class NowPlayingCardView(context: Context) : FrameLayout(context), Saver {
+class NowPlayingCardView(context: Context, private val autoHideMs: Long = 0L) : FrameLayout(context), Saver {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val handler = Handler(Looper.getMainLooper())
     private val art = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP; outlineProvider = rounded(context, 12f); clipToOutline = true }
@@ -168,6 +169,7 @@ class NowPlayingCardView(context: Context) : FrameLayout(context), Saver {
         override fun run() { np?.let { progress.fraction = progressOf(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
     }
     private val move = object : Runnable { override fun run() { corner = (corner + 1) % 4; place(); handler.postDelayed(this, MOVE_MS) } }
+    private val fadeAway = Runnable { card.animate().alpha(0f).setDuration(600).withEndAction { card.visibility = GONE }.start() }
 
     init { addView(card, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)); place() }
 
@@ -179,7 +181,7 @@ class NowPlayingCardView(context: Context) : FrameLayout(context), Saver {
 
     override fun start() {
         scope.launch { context.nowPlayingFlow().collect { show(it) } }
-        handler.postDelayed(move, MOVE_MS)
+        if (autoHideMs == 0L) handler.postDelayed(move, MOVE_MS)
     }
 
     override fun stop() {
@@ -190,15 +192,21 @@ class NowPlayingCardView(context: Context) : FrameLayout(context), Saver {
         val was = np
         np = n
         handler.removeCallbacks(tick)
-        if (n == null || !n.playing) { card.animate().alpha(0f).setDuration(300).withEndAction { if (np?.playing != true) card.visibility = GONE }.start(); return }
-        if (was?.key != n.key) {
+        if (n == null || !n.playing) { handler.removeCallbacks(fadeAway); card.animate().alpha(0f).setDuration(300).withEndAction { if (np?.playing != true) card.visibility = GONE }.start(); return }
+        val fresh = was?.key != n.key
+        if (fresh) {
             title.text = n.title; artist.text = n.artist.orEmpty()
             if (n.art != null) art.setImageBitmap(n.art) else art.setImageResource(R.drawable.ic_music_note)
         }
         progress.fraction = progressOf(n)
-        card.visibility = VISIBLE
-        card.animate().alpha(1f).setDuration(300).start()
-        handler.postDelayed(tick, 1000)
+        // With auto-hide the card appears on a new track or when play starts again, stays a few seconds, and leaves.
+        val appears = autoHideMs == 0L || fresh || was?.playing != true
+        if (appears) {
+            card.visibility = VISIBLE
+            card.animate().alpha(1f).setDuration(300).start()
+            if (autoHideMs > 0) { handler.removeCallbacks(fadeAway); handler.postDelayed(fadeAway, autoHideMs) }
+        }
+        if (card.visibility == VISIBLE) handler.postDelayed(tick, 1000)
     }
 
     private companion object { const val MOVE_MS = 5 * 60_000L }
@@ -228,8 +236,8 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     }
     private val elapsed = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.END; typeface = android.graphics.Typeface.MONOSPACE }
     private val remaining = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.START; typeface = android.graphics.Typeface.MONOSPACE }
-    private val title = TextView(context).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f); setTypeface(typeface, android.graphics.Typeface.BOLD); gravity = Gravity.CENTER; maxLines = 2; setShadowLayer(context.dp(6f), 0f, context.dp(1.5f), Color.argb(170, 0, 0, 0)); ellipsize = android.text.TextUtils.TruncateAt.END }
-    private val artist = TextView(context).apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f); gravity = Gravity.CENTER; maxLines = 1; setShadowLayer(context.dp(5f), 0f, context.dp(1f), Color.argb(150, 0, 0, 0)); ellipsize = android.text.TextUtils.TruncateAt.END }
+    private val title = TextView(context).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f); setTypeface(typeface, android.graphics.Typeface.BOLD); gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
+    private val artist = TextView(context).apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f); gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
     private val progress = ProgressLine(context)
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -258,6 +266,9 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         override fun run() { np?.let { showProgress(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
     }
     private val note = TextView(context).apply { setTextColor(Color.argb(170, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER; visibility = GONE }
+    /** With the visualizer on it owns the screen: no centred cover, no seek bar. The track is a small corner card for a few seconds on a change. */
+    private val visualizerMode = spectrum != null
+    private val infoCard: NowPlayingCardView? = if (visualizerMode) NowPlayingCardView(context, autoHideMs = 6_000L) else null
     /** The visualizer layer, if it is on and the TV can give it audio. */
     private val bars: VisualizerLayer? = spectrum?.let { src ->
         VisualizerLayer(context, src, cfg.visualizerStyle, onSilent = { note.text = "No sound to show: this app keeps its audio to itself."; note.visibility = VISIBLE }, glFactory = glFactory)
@@ -268,6 +279,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         addView(backdrop, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(dim, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bars?.let { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
+        infoCard?.let { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
         addView(note, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = context.dp(36f).toInt() })
         addView(content, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         addView(clock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -284,11 +296,12 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     }
 
     override fun start() {
+        infoCard?.start()
         // One bad update must not end the collection (the saver would freeze on the old track): it is logged and the next one is shown.
         scope.launch { context.nowPlayingFlow().collect { n -> runCatching { show(n) }.onFailure { android.util.Log.w("VitreNowPlaying", "could not show ${n?.key}", it) } } }
     }
 
-    override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt(); clock.shown(false); cornerClock.shown(false) }
+    override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt(); infoCard?.stop(); clock.shown(false); cornerClock.shown(false) }
 
     private fun show(n: NowPlaying?) {
         val was = np
@@ -299,6 +312,15 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         if (n == null) {
             content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.shown(true); cornerClock.shown(false)
             shownKey = null; shownArt = null
+            return
+        }
+        if (visualizerMode) {
+            // The visualizer owns the screen: only the small clock and (from its own view) the corner card are on top of it.
+            clock.shown(false); cornerClock.shown(true); content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE
+            if (shownKey != n.key || shownArt !== n.art) {
+                shownKey = n.key; shownArt = n.art
+                n.art?.takeIf { !n.artIsIcon }?.let { bars?.setTint(lightTint(it)) }
+            }
             return
         }
         clock.shown(false); cornerClock.shown(true); content.visibility = VISIBLE; backdrop.visibility = VISIBLE; dim.visibility = VISIBLE

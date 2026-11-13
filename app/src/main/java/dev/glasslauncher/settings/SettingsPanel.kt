@@ -757,7 +757,7 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
         else askAudio.launch(android.Manifest.permission.RECORD_AUDIO)
     }, help = "Bars that move with the music under the full-screen Now Playing. Needs audio access; an app that keeps its audio private shows none.")
     MenuRow("Visualizer Style", { push(Page.VisualizerStyle) }, value = cfg.screensaver.visualizerStyle.label, chevron = true,
-        help = "How the visualizer looks: Bars, Scope, Bars and Waves, Feedback or Ribbons. It shows under the full-screen Now Playing while music plays.")
+        help = "How the visualizer looks: Spectrum, Tunnel, Warp, Ribbons, Grid or Scope. With the visualizer on it fills the screen while music plays; the track shows in a small card in the corner for a few seconds.")
     MenuRow("Preview Now Playing", { AerialActivity.start(context, nowPlaying = true) },
         help = "The full-screen Now Playing screen saver: pick Now Playing as the current selection to use it.")
 }

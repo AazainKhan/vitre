@@ -87,7 +87,7 @@ internal class BarsView(context: Context) : View(context) {
 class VisualizerLayer(
     context: Context,
     private val source: SpectrumSource,
-    private val style: VisualizerStyle = VisualizerStyle.Bars,
+    private val style: VisualizerStyle = VisualizerStyle.Spectrum,
     private val onSilent: () -> Unit = {},
     /** The GPU view for a style, or null for none (tests, or a device without GLES 2). */
     private val glFactory: GlFactory? = RealGl,

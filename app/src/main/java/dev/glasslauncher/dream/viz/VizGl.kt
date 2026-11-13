@@ -11,7 +11,7 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
- * The GPU side of the visualizer (P334): one full-screen quad and the style's fragment shader, rendered at a fixed 960 x 540 (the GPU scales it
+ * The GPU side of the visualizer (P334): one full-screen quad and the style's fragment shader, rendered at a fixed 1280 x 720 (the GPU scales it
  * up) at about 30 frames a second, only while it is running. The view exists only while music plays, so paused or idle it holds no GPU memory.
  * If a shader does not compile or the framebuffer is not complete, [onFailure] is called once and the host falls back to the Canvas bars.
  */
@@ -80,21 +80,22 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
             failed = false
             val fragment = when (style) {
-                VisualizerStyle.Bars -> VizShaders.BARS
-                VisualizerStyle.Scope -> VizShaders.SCOPE
-                VisualizerStyle.BarsWaves -> VizShaders.BARS_WAVES
+                VisualizerStyle.Spectrum -> VizShaders.SPECTRUM
+                VisualizerStyle.Tunnel -> VizShaders.TUNNEL
+                VisualizerStyle.Warp -> VizShaders.WARP_STEP
                 VisualizerStyle.Ribbons -> VizShaders.RIBBONS
-                VisualizerStyle.Feedback -> VizShaders.FEEDBACK_STEP
+                VisualizerStyle.Grid -> VizShaders.GRID
+                VisualizerStyle.Scope -> VizShaders.SCOPE
             }
             program = link(VizShaders.VERTEX, fragment)
-            if (style == VisualizerStyle.Feedback) blit = link(VizShaders.VERTEX, VizShaders.BLIT)
-            if (program == 0 || (style == VisualizerStyle.Feedback && blit == 0)) return fail("shader did not build")
+            if (style == VisualizerStyle.Warp) blit = link(VizShaders.VERTEX, VizShaders.BLIT)
+            if (program == 0 || (style == VisualizerStyle.Warp && blit == 0)) return fail("shader did not build")
             val t = IntArray(1)
             GLES20.glGenTextures(1, t, 0); audioTex = t[0]
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, audioTex)
             filters()
             GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE, AudioAnalysis.BANDS, 3, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, null)
-            if (style == VisualizerStyle.Feedback) {
+            if (style == VisualizerStyle.Warp) {
                 GLES20.glGenTextures(2, fboTex, 0); GLES20.glGenFramebuffers(2, fbo, 0)
                 for (i in 0..1) {
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[i]); filters()
@@ -118,7 +119,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, audioTex)
             GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, AudioAnalysis.BANDS, 3, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, audioBytes)
-            if (style == VisualizerStyle.Feedback) {
+            if (style == VisualizerStyle.Warp) {
                 val next = 1 - ping
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[next]); GLES20.glViewport(0, 0, WIDTH, HEIGHT)
                 use(program, time, b, m, h, beatNow, tn)
@@ -191,8 +192,12 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
     }
 
     companion object {
-        const val WIDTH = 960
-        const val HEIGHT = 540
+        /** 1280 x 720, or 960 x 540 with `setprop debug.vitre.viz.small 1` (a device test of how much headroom the GPU has). */
+        private val small = runCatching {
+            Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, "debug.vitre.viz.small", "0") == "1"
+        }.getOrDefault(false)
+        val WIDTH = if (small) 960 else 1280
+        val HEIGHT = if (small) 540 else 720
         const val FRAME_MS = 33L
     }
 }

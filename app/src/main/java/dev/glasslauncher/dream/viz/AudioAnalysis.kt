@@ -17,6 +17,7 @@ class SpectrumData(val fft: ByteArray?, val wave: ByteArray?)
 class AudioAnalysis {
     val spectrum = FloatArray(BANDS)
     val peaks = FloatArray(BANDS)
+    private val raw = FloatArray(BANDS)
     val wave = FloatArray(BANDS) { 0.5f }
     var bass = 0f; private set
     var mid = 0f; private set
@@ -25,6 +26,8 @@ class AudioAnalysis {
     /** Whether the last capture held any signal at all (silence, or an app that opts out of capture, is all zeros). */
     var signal = false; private set
     private var bassAverage = 0f
+    /** The loudest band seen lately, falling slowly: the spectrum is scaled so the music fills the screen at any volume. */
+    private var loudest = 0.35f
     private val bins = IntArray(BANDS + 1)
     private var binsFor = 0
 
@@ -45,12 +48,20 @@ class AudioAnalysis {
             binsFor = n
         }
         var any = false
+        var top = 0f
         for (i in 0 until BANDS) {
             var peak = 0f
             for (k in bins[i] until max(bins[i + 1], bins[i] + 1).coerceAtMost(n)) peak = max(peak, hypot(fft[2 * k].toFloat(), fft[2 * k + 1].toFloat()))
             if (peak > 0f) any = true
-            val v = sqrt((peak / 181f).coerceIn(0f, 1f))
-            spectrum[i] = max(v, spectrum[i] * fall)
+            // real music falls away towards the treble: lift the upper bands so the whole width moves
+            raw[i] = sqrt((peak / 181f).coerceIn(0f, 1f)) * (0.75f + 1.1f * i / BANDS)
+            top = max(top, raw[i])
+        }
+        // the loudest band lately sets the scale (this capture included), so any volume fills the screen without overshooting
+        loudest = max(top, loudest * 0.994f)
+        val gain = 0.9f / max(0.35f, loudest)
+        for (i in 0 until BANDS) {
+            spectrum[i] = max((raw[i] * gain).coerceIn(0f, 1f), spectrum[i] * fall)
             peaks[i] = max(spectrum[i], peaks[i] - 0.012f)
         }
         signal = any
@@ -74,7 +85,7 @@ class AudioAnalysis {
         return into
     }
 
-    fun clear() { spectrum.fill(0f); peaks.fill(0f); wave.fill(0.5f); bass = 0f; mid = 0f; high = 0f; beat = 0f; signal = false; bassAverage = 0f }
+    fun clear() { loudest = 0.35f; spectrum.fill(0f); peaks.fill(0f); wave.fill(0.5f); bass = 0f; mid = 0f; high = 0f; beat = 0f; signal = false; bassAverage = 0f }
 
     companion object { const val BANDS = 256 }
 }

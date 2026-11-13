@@ -99,7 +99,7 @@ class NowPlayingVisualizerTest {
 
     @Test fun theGpuViewExistsOnlyWhileListeningAndIsRemovedWhenHalted() {
         val src = FakeSource(); val made = ArrayList<View>()
-        val layer = VisualizerLayer(context, src, VisualizerStyle.Ribbons, glFactory = { c, _, _ -> View(c).also { made.add(it) } })
+        val layer = VisualizerLayer(context, src, VisualizerStyle.Grid, glFactory = { c, _, _ -> View(c).also { made.add(it) } })
         assertEquals("nothing before it runs", 0, layer.childCount)
         layer.run(); assertTrue(src.running); assertTrue(layer.usingGpu); assertEquals(1, layer.childCount)
         layer.halt(); assertFalse("released", src.running); assertEquals("the GPU view is gone", 0, layer.childCount); assertFalse(layer.usingGpu)
@@ -109,7 +109,7 @@ class NowPlayingVisualizerTest {
 
     @Test fun ifTheGpuViewCannotStartTheCanvasBarsTakeOver() {
         val src = FakeSource(); var fail: (() -> Unit)? = null
-        val layer = VisualizerLayer(context, src, VisualizerStyle.Feedback, glFactory = { c, _, f -> fail = f; View(c) })
+        val layer = VisualizerLayer(context, src, VisualizerStyle.Warp, glFactory = { c, _, f -> fail = f; View(c) })
         layer.run(); assertTrue(layer.usingGpu)
         fail!!.invoke()
         assertFalse("a shader that did not build is dropped", layer.usingGpu)
@@ -154,14 +154,50 @@ class NowPlayingVisualizerTest {
 
     // --- the style setting ---
 
-    @Test fun theStyleDefaultsToBarsAndSurvivesTheConfigRoundTrip() {
-        assertEquals(VisualizerStyle.Bars, ScreensaverConfig().visualizerStyle)
+    @Test fun theStyleDefaultsToSpectrumAndSurvivesTheConfigRoundTrip() {
+        assertEquals(VisualizerStyle.Spectrum, ScreensaverConfig().visualizerStyle)
         val json = kotlinx.serialization.json.Json { encodeDefaults = true }
         VisualizerStyle.entries.forEach { s ->
             assertEquals(s, json.decodeFromString(ScreensaverConfig.serializer(), json.encodeToString(ScreensaverConfig.serializer(), ScreensaverConfig(visualizerStyle = s))).visualizerStyle)
         }
-        assertEquals("an old config with no style reads as Bars", VisualizerStyle.Bars, json.decodeFromString(ScreensaverConfig.serializer(), "{}").visualizerStyle)
-        assertEquals(5, VisualizerStyle.entries.size)
+        assertEquals("an old config with no style reads as the default", VisualizerStyle.Spectrum, json.decodeFromString(ScreensaverConfig.serializer(), "{}").visualizerStyle)
+        // configs saved when there were five styles, under their first names, still read
+        for ((old, now) in mapOf("Bars" to VisualizerStyle.Spectrum, "BarsWaves" to VisualizerStyle.Tunnel, "Feedback" to VisualizerStyle.Warp, "Ribbons" to VisualizerStyle.Ribbons, "Scope" to VisualizerStyle.Scope)) {
+            assertEquals(now, json.decodeFromString(ScreensaverConfig.serializer(), """{"visualizerStyle":"$old"}""").visualizerStyle)
+        }
+        assertEquals(6, VisualizerStyle.entries.size)
+    }
+
+    // --- the layout: the visualizer owns the screen ---
+
+    private fun visibleTexts(v: View): List<String> =
+        if (v.visibility == View.GONE) emptyList() else if (v is android.widget.TextView) listOf(v.text.toString()) else if (v is android.view.ViewGroup) (0 until v.childCount).flatMap { visibleTexts(v.getChildAt(it)) } else emptyList()
+
+    /** The user: a centred cover and seek bar over the visualizer "makes no sense". With the visualizer on there is only a corner card, and it leaves. */
+    @Test fun theVisualizerOwnsTheScreenAndTheTrackIsACornerCardThatFadesAway() {
+        val state = MutableStateFlow<NowPlaying?>(np(playing = true))
+        NowPlayingFixture.state = state
+        val src = FakeSource()
+        val saver = NowPlayingSaverView(context, ScreensaverConfig(visualizer = true), spectrum = src, glFactory = null)
+        saver.start(); idle(1000)
+        assertTrue("the track shows in the corner card at first (${visibleTexts(saver)})", visibleTexts(saver).contains("T"))
+        // nothing of the centred layout: the elapsed and remaining times belong to it
+        assertTrue("no seek bar times in the middle", visibleTexts(saver).none { it == "0:50" || it == "-2:30" })
+        idle(7_000)
+        assertFalse("after a few seconds the card has gone (${visibleTexts(saver)})", visibleTexts(saver).contains("T"))
+        state.value = np(playing = true).copy(positionMs = 60_000); idle(500)
+        assertFalse("an update of the same track does not bring it back", visibleTexts(saver).contains("T"))
+        state.value = np(playing = true).copy(title = "Next Song"); idle(1000)
+        assertTrue("a new track does", visibleTexts(saver).contains("Next Song"))
+        saver.stop()
+    }
+
+    @Test fun withoutTheVisualizerTheCentredLayoutIsUnchanged() {
+        NowPlayingFixture.state = MutableStateFlow<NowPlaying?>(np(playing = false))
+        val saver = NowPlayingSaverView(context, ScreensaverConfig())
+        saver.start(); idle(1000)
+        assertTrue("the times are there", visibleTexts(saver).contains("0:50") && visibleTexts(saver).contains("-2:30"))
+        saver.stop()
     }
 
     // --- the picture (Canvas bars: Robolectric has no GL; the shaders were checked in WebGL and are checked on the stick) ---
