@@ -90,9 +90,7 @@ class AsciiRaster(piece: AsciiPiece, private val cellW: Int, private val cellH: 
             c in 0x2581..0x2587 -> fill(0, cellH - cellH * (c - 0x2580) / 8, cellW, cellH)
             c in 0x2589..0x258F -> fill(0, 0, cellW * (0x2590 - c) / 8, cellH)
             c == 0x2590 -> fill(cellW / 2, 0, cellW, cellH)
-            c == 0x2591 -> fill(0, 0, cellW, cellH, 64)
-            c == 0x2592 -> fill(0, 0, cellW, cellH, 128)
-            c == 0x2593 -> fill(0, 0, cellW, cellH, 192)
+            c in 0x2591..0x2593 -> shade(m, c - 0x2590)
             c == 0x2594 -> fill(0, 0, cellW, cellH / 8)
             c == 0x2595 -> fill(cellW - cellW / 8, 0, cellW, cellH)
             c in 0x2800..0x28FF -> {
@@ -117,6 +115,19 @@ class AsciiRaster(piece: AsciiPiece, private val cellW: Int, private val cellH: 
             }
         }
         return m
+    }
+
+    /**
+     * The shade blocks as a terminal draws them, a pattern and not a dimmer fill: [level] 1 is a quarter of the cell inked in a sparse grid
+     * of small squares, 2 a checkerboard of them, 3 all but a quarter. The squares are [unit] pixels, so the texture reads at any cell size.
+     */
+    private fun shade(m: ByteArray, level: Int) {
+        val unit = (cellW / 6).coerceAtLeast(1)
+        for (y in 0 until cellH) for (x in 0 until cellW) {
+            val gx = x / unit; val gy = y / unit
+            val on = when (level) { 1 -> gx % 2 == 0 && gy % 2 == 0; 2 -> (gx + gy) % 2 == 0; else -> !(gx % 2 == 1 && gy % 2 == 1) }
+            if (on) m[y * cellW + x] = 255.toByte()
+        }
     }
 
     /** A halftone dot covering [fraction] of the cell's area, antialiased; a full cell is a full cell. */

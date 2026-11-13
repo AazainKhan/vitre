@@ -52,6 +52,15 @@ class AsciiRasterTest {
         assertEquals(listOf(off, off, off), seen[3])
     }
 
+    /** A shade block is a texture, not a dimmer solid: both ink and background show inside one cell. */
+    @Test fun aShadeBlockIsAPatternNotASolid() {
+        val (r, f) = raster("\u2592")   // medium shade
+        f.next(); val b = r.draw(f)
+        val seen = HashSet<Int>()
+        for (y in 0 until ch) for (x in 0 until cw) seen.add(px(b, 0, 0, x, y))
+        assertTrue("ink and background both present", seen.contains(red) && seen.contains(AsciiRaster.BACKGROUND))
+    }
+
     @Test fun inADotsPieceALowerBlockIsAHalftoneDotNotABar() {
         val (r, f) = raster("▄", head = """{"v":2,"slug":"t","cols":8,"rows":3,"fps":10,"n":1,"cell":"square","look":"dots","palette":["#ff0000"]}""")
         f.next(); val b = r.draw(f)
