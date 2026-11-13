@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
         // However Glass came back (Home, Back out of the store), Amazon's launcher goes off again; and if it
         // came back on some other way, Glass takes Home back (keepHome).
         val app = application as GlassApp
+        app.scope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { dev.glasslauncher.widgets.ListenerGrant.ensure(app) } }
         app.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             dev.glasslauncher.system.AmazonStore.close(app, bringHome = false)
             dev.glasslauncher.system.RootFeatures.keepHome(app)
