@@ -33,6 +33,8 @@ object KeysServicePolicy {
         /** Found off without an update since it was last seen on: the user turned it off; follow them. */
         data object UserTurnedOff : Action
         data object ShowCard : Action
+        /** P332: found off with no switch-off observed (a force-stop or a kill dropped it) and VITRE can't write it back: say so, keep the setting on. */
+        data object NoticeKilled : Action
     }
 
     class State(
@@ -47,22 +49,28 @@ object KeysServicePolicy {
         /** The Home card has already been shown since the setting was last turned on. */
         val cardShown: Boolean,
         /**
-         * The running service saw the system unbind it (onUnbind) after this install: a switch-off in Accessibility
-         * settings with Glass alive. A force-stop or `uninstall-system-updates` drops the service from the enabled list
-         * with no callback, so without this marker an absence is not proof the user turned it off.
+         * P332: VITRE's process saw enabled_accessibility_services lose the service (a ContentObserver) after this install: a
+         * switch-off in Accessibility settings with VITRE alive. A force-stop also unbinds the service (onUnbind fired for it on
+         * Fire, which read as the user and turned the setting off), but it kills the process, so the change is never observed.
          */
-        val userUnbound: Boolean = false,
+        val userSwitchedOff: Boolean = false,
     )
 
-    fun decide(s: State): Action = when {
-        !s.settingOn -> Action.Nothing                                   // the user said off: don't fight it
-        s.serviceOn -> Action.RecordOn
-        s.mode == WriteMode.None -> if (s.cardShown) Action.Nothing else Action.ShowCard
-        // Off, and Glass may turn it on: after an update or at boot (or never seen on) that is the system dropping it;
-        // otherwise (same version, seen on before) someone switched it off.
-        s.atBoot || s.lastOnUpdate == null || s.lastOnUpdate != s.updateTime -> Action.Enable
-        s.userUnbound -> Action.UserTurnedOff
-        else -> Action.Enable                                            // dropped with no unbind: force-stop or a package change
+    fun decide(s: State): Action {
+        if (!s.settingOn) return Action.Nothing                          // the user said off: don't fight it
+        if (s.serviceOn) return Action.RecordOn
+        // After an update or at boot (or never seen on) an absence is the system dropping it.
+        val fresh = s.atBoot || s.lastOnUpdate == null || s.lastOnUpdate != s.updateTime
+        if (s.mode == WriteMode.None) return when {
+            fresh -> if (s.cardShown) Action.Nothing else Action.ShowCard
+            s.userSwitchedOff -> Action.Nothing                          // the user's off; nothing to write anyway
+            else -> Action.NoticeKilled                                   // seen on, now gone, nobody switched it off
+        }
+        return when {
+            fresh -> Action.Enable
+            s.userSwitchedOff -> Action.UserTurnedOff                    // observed while VITRE was alive: the user's choice
+            else -> Action.Enable                                        // gone with nothing observed: killed, not a choice
+        }
     }
 }
 

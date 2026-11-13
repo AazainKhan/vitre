@@ -350,12 +350,6 @@ class RemoteKeysService : AccessibilityService() {
         if (front != null) handler.postDelayed(capture, PREVIEW_FIRST_MS)
     }
 
-    override fun onUnbind(intent: android.content.Intent?): Boolean {
-        // Only a live process sees this: a user's switch-off in Accessibility settings. KeysService reads it to tell that from a force-stop.
-        getSharedPreferences("keysService", 0).edit().putLong("unboundAt", System.currentTimeMillis()).apply()
-        return super.onUnbind(intent)
-    }
-
     override fun onDestroy() {
         if (instance === this) instance = null
         controlCenter.hide()

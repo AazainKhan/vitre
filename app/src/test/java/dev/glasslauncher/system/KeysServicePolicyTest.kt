@@ -9,8 +9,8 @@ import org.junit.Test
 class KeysServicePolicyTest {
     private fun state(
         setting: Boolean = true, service: Boolean = false, mode: WriteMode = WriteMode.Root, version: Long = 10,
-        last: Long? = 10, boot: Boolean = false, card: Boolean = false, unbound: Boolean = false,
-    ) = State(setting, service, mode, version, last, boot, card, unbound)
+        last: Long? = 10, boot: Boolean = false, card: Boolean = false, off: Boolean = false,
+    ) = State(setting, service, mode, version, last, boot, card, off)
 
     @Test fun modeDecision() {
         assertEquals(WriteMode.SecureSettings, KeysServicePolicy.mode(hasSecureWrite = true, hasRoot = true))
@@ -53,7 +53,7 @@ class KeysServicePolicyTest {
         // The update heal ran (Enable) and recorded this install time; the user then turns the service off.
         val installed = 2_000L
         assertEquals(Action.Enable, KeysServicePolicy.decide(state(version = installed, last = 1_000)))
-        assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(version = installed, last = installed, unbound = true)))
+        assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(version = installed, last = installed, off = true)))
     }
 
     @Test fun atBootItIsReEnabledEvenOnTheSameVersion() {
@@ -62,18 +62,30 @@ class KeysServicePolicyTest {
 
     @Test fun offOnTheSameVersionAfterBeingSeenOnIsTheUserAndGlassFollows() {
         for (mode in listOf(WriteMode.Root, WriteMode.SecureSettings)) {
-            assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(mode = mode, version = 10, last = 10, unbound = true)))
+            assertEquals(Action.UserTurnedOff, KeysServicePolicy.decide(state(mode = mode, version = 10, last = 10, off = true)))
         }
     }
 
     @Test fun anApkInstallAsksOnceAndNeverEnables() {
-        assertEquals(Action.ShowCard, KeysServicePolicy.decide(state(mode = WriteMode.None)))
-        assertEquals("after the card", Action.Nothing, KeysServicePolicy.decide(state(mode = WriteMode.None, card = true)))
+        assertEquals(Action.ShowCard, KeysServicePolicy.decide(state(mode = WriteMode.None, last = null)))
+        assertEquals("after the card", Action.Nothing, KeysServicePolicy.decide(state(mode = WriteMode.None, last = null, card = true)))
         // Never an Enable or UserTurnedOff for the no-write mode, whatever the version history.
-        for (last in listOf(null, 9L, 10L)) for (boot in listOf(false, true)) {
-            val a = KeysServicePolicy.decide(state(mode = WriteMode.None, last = last, boot = boot, card = true))
-            assertEquals(Action.Nothing, a)
+        for (last in listOf(null, 9L, 10L)) for (boot in listOf(false, true)) for (off in listOf(false, true)) {
+            val a = KeysServicePolicy.decide(state(mode = WriteMode.None, last = last, boot = boot, card = true, off = off))
+            assert(a != Action.Enable && a != Action.UserTurnedOff) { "$a for last=$last boot=$boot off=$off" }
         }
+    }
+
+    // P332: a force-stop also unbinds the service, but it kills VITRE, so the settings change is never observed. That is a
+    // kill, not the user: re-enable where VITRE can write the setting, otherwise say so and keep the setting on.
+    @Test fun aKillWithNoObservedSwitchOffIsReEnabled() {
+        for (mode in listOf(WriteMode.Root, WriteMode.SecureSettings))
+            assertEquals(Action.Enable, KeysServicePolicy.decide(state(mode = mode, version = 10, last = 10, off = false)))
+    }
+
+    @Test fun aKillOnAPlainApkGetsANoticeAndTheSettingStaysOn() {
+        assertEquals(Action.NoticeKilled, KeysServicePolicy.decide(state(mode = WriteMode.None, version = 10, last = 10, card = true, off = false)))
+        assertEquals("the user's own off is left alone", Action.Nothing, KeysServicePolicy.decide(state(mode = WriteMode.None, version = 10, last = 10, card = true, off = true)))
     }
 }
 

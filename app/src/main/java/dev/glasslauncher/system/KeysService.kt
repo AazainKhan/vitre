@@ -38,8 +38,28 @@ object KeysService {
         return on && list.split(':').any { it == SERVICE }
     }
 
+    /** Once per process: the kill notice is said once, not on every Home resume. */
+    private var killNoticeShown = false
+    private var watching = false
+
+    /**
+     * P332: records a switch-off of the service that happens while VITRE's process is alive (the user in Accessibility
+     * settings). A force-stop drops the service too, but kills the process first, so it is never recorded here.
+     */
+    private fun watch(app: Context) {
+        if (watching) return
+        watching = true
+        val uri = Settings.Secure.getUriFor("enabled_accessibility_services")
+        app.contentResolver.registerContentObserver(uri, false, object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                if (!serviceOn(app)) app.getSharedPreferences(PREFS, 0).edit().putLong("userOffAt", System.currentTimeMillis()).apply()
+            }
+        })
+    }
+
     suspend fun check(context: Context) {
         val app = context.applicationContext
+        runCatching { watch(app) }
         val prefs = app.getSharedPreferences(PREFS, 0)
         // A boot, not a process restart (LMK and crashes restart Glass too): the system's boot counter changed.
         val bootCount = Settings.Global.getInt(app.contentResolver, "boot_count", -1)
@@ -58,21 +78,25 @@ object KeysService {
             settingOn = settingOn, serviceOn = on, mode = KeysServicePolicy.mode(hasSecure, hasRoot), updateTime = updateTime,
             lastOnUpdate = if (prefs.contains("lastOnUpdate")) prefs.getLong("lastOnUpdate", 0L) else null,
             atBoot = atBoot, cardShown = prefs.getBoolean("cardShown", false),
-            userUnbound = prefs.getLong("unboundAt", 0L) > updateTime,
+            userSwitchedOff = prefs.getLong("userOffAt", 0L) > updateTime,
         )
         val action = KeysServicePolicy.decide(state)
         android.util.Log.i("GlassKeys", "check: setting=$settingOn service=$on mode=${state.mode} boot=$atBoot update=$updateTime last=${state.lastOnUpdate} -> $action")
         when (action) {
             KeysServicePolicy.Action.Nothing -> Unit
-            KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnUpdate", updateTime).remove("unboundAt").apply()
+            KeysServicePolicy.Action.RecordOn -> prefs.edit().putLong("lastOnUpdate", updateTime).remove("userOffAt").apply()
             KeysServicePolicy.Action.Enable -> {
                 enable(app, state.mode)
                 // Record this install as healed: a manual off right after the heal is the user's, not an update's.
-                prefs.edit().putLong("lastOnUpdate", updateTime).remove("unboundAt").apply()
+                prefs.edit().putLong("lastOnUpdate", updateTime).remove("userOffAt").apply()
             }
             KeysServicePolicy.Action.UserTurnedOff -> {
                 app.app.config.update { it.copy(instantBack = false) }
                 RemoteNotice.show(app, "Remote buttons off. Turn on in VITRE Settings", 4_000)
+            }
+            KeysServicePolicy.Action.NoticeKilled -> if (!killNoticeShown) {
+                killNoticeShown = true
+                RemoteNotice.show(app, "Remote buttons were switched off by the system. Turn VITRE back on in Accessibility", 5_000)
             }
             KeysServicePolicy.Action.ShowCard -> {
                 // Robolectric has no root and no secure write, so every UI test would open the card over Home.
