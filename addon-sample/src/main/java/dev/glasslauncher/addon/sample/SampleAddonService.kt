@@ -10,7 +10,7 @@ class SampleAddonService : GlassAddonService() {
     private val prefs get() = getSharedPreferences("sample", MODE_PRIVATE)
 
     private fun counter() = prefs.getInt("count", 0).let { TileState("counter", "Counter", "add", on = it > 0, value = it.toString()) }
-    private fun apiTile() = TileState("api", "API Level", "settings", value = "Glass API ${dev.glasslauncher.addon.AddonApi.LEVEL}")
+    private fun apiTile() = TileState("api", "API Level", "settings", value = "VITRE API ${dev.glasslauncher.addon.AddonApi.LEVEL}")
 
     override fun tiles() = listOf(counter(), apiTile())
 

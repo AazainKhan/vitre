@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "glass-tv-launcher"
+rootProject.name = "vitre"
 include(":app")
 include(":baselineprofile")
 include(":browser")

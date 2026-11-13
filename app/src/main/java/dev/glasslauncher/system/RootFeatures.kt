@@ -250,7 +250,7 @@ object RootFeatures {
             settings delete global activity_manager_constants
             device_config put activity_manager max_cached_processes 12
             GLASSSH
-            printf 'id=glass-tuning\nname=Glass Memory Tuning\nversion=1\nversionCode=1\nauthor=VITRE\ndescription=1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Remove to restore Fire OS defaults.\n' > ${'$'}M/module.prop
+            printf 'id=glass-tuning\nname=VITRE Memory Tuning\nversion=1\nversionCode=1\nauthor=VITRE\ndescription=1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Remove to restore Fire OS defaults.\n' > ${'$'}M/module.prop
             chmod 755 ${'$'}M/service.sh; chmod 644 ${'$'}M/system/vendor/etc/fstab.enableswap
             rm -f ${'$'}M/remove ${'$'}M/disable
         """.trimIndent().lines().joinToString("\n") { it.trimStart() })

@@ -17,7 +17,7 @@ n=$(grep -c 'name="dev.glasslauncher.ADDON"' "$M")
 [ "$n" -eq 1 ] || fail "need exactly one service with the dev.glasslauncher.ADDON action (found $n): one add-on service per package"
 for k in api min_glass_api title icon needs_root; do [ -n "$(meta $k)" ] || fail "missing meta-data dev.glasslauncher.addon.$k"; done
 grep -q 'android:permission="dev.glasslauncher.permission.BIND_ADDON"' "$M" || fail "the service must have android:permission=dev.glasslauncher.permission.BIND_ADDON"
-grep -q '<permission' "$M" && fail "do not declare <permission>: Glass defines BIND_ADDON (a second definition clashes on install order)"
+grep -q '<permission' "$M" && fail "do not declare <permission>: VITRE defines BIND_ADDON (a second definition clashes on install order)"
 grep -q '<queries' "$M" && fail "an add-on needs no <queries>"
 grep -q 'dev.glasslauncher.addon.api" android:value="[0-9]' "$M" || fail "addon.api must be an integer"
 

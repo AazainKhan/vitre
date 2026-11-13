@@ -75,5 +75,5 @@ internal fun ColumnScope.DownloadCodesPage(model: HomeModel, cfg: LauncherConfig
             })
         }, value = DownloadInput.host(c.url) ?: c.url)
     }
-    Hint("Codes shared in the Glass repository work too. A download from a code always shows its site first.")
+    Hint("Codes shared in the VITRE repository work too. A download from a code always shows its site first.")
 }

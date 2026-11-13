@@ -533,7 +533,7 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
         }
         FeaturedSourceId.ContinueWatching -> Hint("What you were watching, from the rows apps publish to the TV.")
         FeaturedSourceId.Off, FeaturedSourceId.TvApp, FeaturedSourceId.JustWatch -> Unit
-        FeaturedSourceId.Addon -> Hint("Titles from an add-on you switched on. Its art is fetched by Glass.")
+        FeaturedSourceId.Addon -> Hint("Titles from an add-on you switched on. Its art is fetched by VITRE.")
     }
     MenuRow("Refresh Now", { scope.launch { graph.featured.refresh(fc, force = true, addons = dev.glasslauncher.addons.AddonSnapshot(cfg.addonsEnabled, cfg.addonSettings)) } })
 }
@@ -780,7 +780,7 @@ private fun ColumnScope.AerialsPrefsPage(model: HomeModel, cfg: LauncherConfig, 
         },
         enabled = canWrite || isSystem,
         help = when {
-            HomeSetup.isFireTv -> "Fire OS only runs Amazon's screensavers; Glass starts its own when Home is idle."
+            HomeSetup.isFireTv -> "Fire OS only runs Amazon's screensavers; VITRE starts its own when Home is idle."
             !canWrite && !isSystem -> "One-time setup from a computer: ${Screensaver.GRANT_COMMAND}"
             else -> null
         },
@@ -1021,7 +1021,7 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
             }
             // Turning it off can leave the stock home screen in charge: ask first.
             if (enable) apply() else askGuard(dev.glasslauncher.home.Overlay.Confirm("Turn Off Home Button Takeover?", "If the stock home screen comes back, VITRE won't take over again.", "Turn Off", destructive = true) { apply() })
-        }, help = "When the stock home screen appears, Glass takes over. It never intercepts buttons.")
+        }, help = "When the stock home screen appears, VITRE takes over. It never intercepts buttons.")
         if (cfg.homeGuard && !guardOn) {
             Hint(if (canWrite) "Couldn't enable the accessibility service." else "Grant once from a computer: ${Screensaver.GRANT_COMMAND}, then toggle again. Or enable it in Accessibility settings.")
         }
@@ -1305,7 +1305,7 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
         val install = system == dev.glasslauncher.system.RootFeatures.SystemApp.Off || system == dev.glasslauncher.system.RootFeatures.SystemApp.Removing
         askSystem(dev.glasslauncher.home.Overlay.Confirm(
             if (install) "Install as a System App?" else "Remove the System App?",
-            if (install) "Glass becomes a privileged system app after the next restart (a Magisk module; removing it reverts)." else "Glass goes back to a regular app after the next restart.",
+            if (install) "VITRE becomes a privileged system app after the next restart (a Magisk module; removing it reverts)." else "VITRE goes back to a regular app after the next restart.",
             if (install) "Install" else "Remove", destructive = !install,
         ) { act("system") { if (install) rf.installSystemApp(context) else rf.removeSystemApp(context) } })
     }, enabled = on, value = when (system) {
@@ -1313,14 +1313,14 @@ private fun ColumnScope.RootToolsPage(f: Modifier, push: (Page) -> Unit) {
         dev.glasslauncher.system.RootFeatures.SystemApp.Pending -> "On after restart"
         dev.glasslauncher.system.RootFeatures.SystemApp.Removing -> "Off after restart"
         dev.glasslauncher.system.RootFeatures.SystemApp.Off -> "Off"
-    }, help = "Runs Glass as a privileged system app: it can read other apps' TV rows and is harder for the system to stop.")
+    }, help = "Runs VITRE as a privileged system app: it can read other apps' TV rows and is harder for the system to stop.")
     // Rows that only mean something on some devices are not drawn on the others (P155).
     val stockHome = remember(tick) { rf.hasStockHome(context) }
     if (stockHome) ToggleRow("Home Takeover", takeover, { v -> act("home") { rf.setHomeTakeover(context, v) } }, enabled = on,
-        help = "Turns off the TV's own launcher and makes Glass the Home screen. Off brings the TV's back.")
+        help = "Turns off the TV's own launcher and makes VITRE the Home screen. Off brings the TV's back.")
     var ownPairing by remember { mutableStateOf(rf.ownRemotePairing(context)) }
     if (dev.glasslauncher.system.HomeSetup.isFireTv) ToggleRow("Own Remote Pairing", ownPairing, { v -> ownPairing = v; act("pairing") { rf.setOwnRemotePairing(context, v) } }, enabled = on,
-        help = "Turns off Fire's auto-pair, which drops a sleeping remote's pairing, and lets Glass pair the remote itself. Needs System App on, and a restart.")
+        help = "Turns off Fire's auto-pair, which drops a sleeping remote's pairing, and lets VITRE pair the remote itself. Needs System App on, and a restart.")
     if (dev.glasslauncher.system.DeviceProfile.memoryTuningApplies(context)) ToggleRow("Memory Tuning", memory == true, { v -> act("memory") { rf.setMemoryTuning(context, v) } }, enabled = on,
         help = "Keeps the apps you return to ready (1.2 GB compressed swap, a gentler low-memory killer, 12 cached apps). After a restart.")
     MenuRow("Free Memory", { act("free") { freed = rf.freeMemory(context) } }, value = freed?.let { "$it MB freed" }, enabled = on)
@@ -1478,7 +1478,7 @@ private fun ColumnScope.AddonsPage(model: HomeModel, cfg: LauncherConfig, f: Mod
     val ask = dev.glasslauncher.home.LocalConfirm.current
     PanelTitle("Add-ons")
     val addons by androidx.compose.runtime.produceState(emptyList<dev.glasslauncher.addons.AddonInfo>()) { value = dev.glasslauncher.addons.AddonHost.installed(context) }
-    Hint("Add-ons are separate apps. A new one starts off; switch it on to show its Control Center tiles. It runs in its own process and can only send Glass labels and state.")
+    Hint("Add-ons are separate apps. A new one starts off; switch it on to show its Control Center tiles. It runs in its own process and can only send VITRE labels and state.")
     addons.forEachIndexed { i, a ->
         val trust = dev.glasslauncher.addons.AddonTrust
         val on = trust.isEnabled(cfg.addonsEnabled, a.pkg, a.cert)
@@ -1496,10 +1496,10 @@ private fun ColumnScope.AddonsPage(model: HomeModel, cfg: LauncherConfig, f: Mod
             ) { set(true) }) else set(v)
         }, if (i == 0) f else Modifier, enabled = a.compatible,
             help = "${a.pkg} · ${trust.fingerprint(a.cert)}\n" + when {
-                !a.compatible -> "Needs a newer or older Glass (API ${a.api})."
+                !a.compatible -> "Needs a newer or older VITRE (API ${a.api})."
                 paused -> "Paused · stopped responding. Switch off and on to resume."
                 changed -> "Switched off: its signing certificate changed."
-                else -> "${a.points.joinToString(", ") { pointName(it) }}${if (a.needsRoot) " · needs root" else ""} · not from the Glass repo"
+                else -> "${a.points.joinToString(", ") { pointName(it) }}${if (a.needsRoot) " · needs root" else ""} · not from the VITRE repo"
             })
         if (on && dev.glasslauncher.addon.AddonPoint.SETTINGS in a.points) MenuRow("${a.title} Settings", { push(Page.AddonForm(a.pkg)) }, chevron = true)
     }
@@ -1532,7 +1532,7 @@ private fun ColumnScope.AddonFormPage(model: HomeModel, cfg: LauncherConfig, pkg
             ?.let { stale -> model.edit { c -> c.copy(addonSettings = c.addonSettings - stale) } }
     }
     if (shown == null) { Hint(if (form.second) "Couldn't reach the add-on." else "Loading…"); Box(Modifier.size(1.dp)); return }
-    Hint("From an add-on. Glass keeps these values and sends them to the add-on.")
+    Hint("From an add-on. VITRE keeps these values and sends them to the add-on.")
     val stored = snap.valuesOf(pkg)
     fun set(id: String, v: String) {
         // Dependents are forgotten only when the value really changes.

@@ -131,7 +131,7 @@ internal object PersonPhotos {
     private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private const val NONE = ""
     /** Wikimedia refuses generic agents (okhttp's default gets 403), for the summary and the thumbnail alike. */
-    const val USER_AGENT = "GlassLauncher/1.0 (https://github.com/AazainKhan/glass-tv-launcher)"
+    const val USER_AGENT = "VITRE/1.0 (https://github.com/AazainKhan/vitre)"
     private val CALLING = Regex("actor|actress|director|filmmaker|comedian|screenwriter|producer|singer|musician|presenter|voice", RegexOption.IGNORE_CASE)
 
     /** The thumbnail URL in a summary JSON, or null when the page isn't a person of that calling or has no picture. */

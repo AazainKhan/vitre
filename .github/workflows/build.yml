@@ -39,16 +39,16 @@ jobs:
       - name: APK size
         run: scripts/apk-size-check
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk "glass-tv-launcher-${GITHUB_REF_NAME//\//-}.apk"
+        run: cp app/build/outputs/apk/release/app-release.apk "vitre-${GITHUB_REF_NAME//\//-}.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: glass-tv-launcher-apk
-          path: glass-tv-launcher-*.apk
+          name: vitre-apk
+          path: vitre-*.apk
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: glass-tv-launcher-*.apk
+          files: vitre-*.apk
           generate_release_notes: true
           # A draft: the signature is checked and the notes added before anyone can download it; a "-beta" tag is a pre-release.
           draft: true

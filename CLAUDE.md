@@ -5,7 +5,7 @@ Open-source (Apache-2.0) Apple TV / tvOS-style launcher for Android TV and Fire 
 ## Commits
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, type one of feat, fix, perf, refactor, test, docs, build, ci, chore, style. Mark breaking changes with `!` or a `BREAKING CHANGE:` footer. Example: `fix(focus): stop Right at row ends`.
-- The repo is public (github.com/AazainKhan/glass-tv-launcher). Commits use the noreply email set in the repo config. Before pushing, `git pull --rebase`, then push with `scripts/gates && git push`. The pre-push hook (`scripts/git-hooks/pre-push`) runs `scripts/leak-check` on every push (no device serials, home paths or crash dumps) and the gates unless `scripts/gates` passed for that exact tree, so a push can never follow a failed check.
+- The repo is public (github.com/AazainKhan/vitre). Commits use the noreply email set in the repo config. Before pushing, `git pull --rebase`, then push with `scripts/gates && git push`. The pre-push hook (`scripts/git-hooks/pre-push`) runs `scripts/leak-check` on every push (no device serials, home paths or crash dumps) and the gates unless `scripts/gates` passed for that exact tree, so a push can never follow a failed check.
 
 ## How the agents work
 

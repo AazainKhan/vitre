@@ -1,6 +1,6 @@
 id=glass-remote-keepalive
-name=Glass remote keepalive
+name=VITRE remote keepalive
 version=v2
 versionCode=2
-author=Glass TV Launcher
+author=VITRE
 description=Keeps the Fire TV remote bonded across reboots: waits for AmazonAutoPairService's re-pair delay and cancels it with one key event.

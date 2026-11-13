@@ -1,6 +1,6 @@
 id=glass-tuning
-name=Glass Memory Tuning
+name=VITRE Memory Tuning
 version=1
 versionCode=1
-author=Glass TV Launcher
+author=VITRE
 description=Keeps more apps warm on a 2 GB Fire TV: 1.2 GB zram, LRU-first low-memory killer, 12 cached apps. Uninstall to restore Fire OS defaults.

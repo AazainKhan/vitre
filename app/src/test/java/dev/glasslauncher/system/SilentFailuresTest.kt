@@ -108,7 +108,7 @@ class SilentFailuresTest {
         assertNull("nothing shown at start", probe.latestOrNull())
         CrashRecovery.showPending(context)
         ShadowLooper.idleMainLooper()
-        assertEquals("Glass restarted after it stopped unexpectedly.", probe.latest())
+        assertEquals("VITRE restarted after it stopped unexpectedly.", probe.latest())
         assertEquals("now it is seen", now - 3_000, seen)
         assertEquals(0L, pending)
         probe.reset()
@@ -152,7 +152,7 @@ class SilentFailuresTest {
         doNotDisturb(false)
         CrashRecovery.showPending(context)
         ShadowLooper.idleMainLooper()
-        assertEquals("Glass restarted after it stopped unexpectedly.", probe.latest())
+        assertEquals("VITRE restarted after it stopped unexpectedly.", probe.latest())
         assertEquals(now - 3_000, seen)
         assertEquals(0L, pending)
     }

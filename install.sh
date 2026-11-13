@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Glass TV Launcher, one-line install.
 #
-#   curl -sL https://raw.githubusercontent.com/AazainKhan/glass-tv-launcher/master/install.sh | sh
+#   curl -sL https://raw.githubusercontent.com/AazainKhan/vitre/master/install.sh | sh
 #
 # Works from a computer with adb, or from the TV itself with Termux. It only ever Installs an APK and (with --home)
 # changes which app is HOME - nothing else, so nothing here needs root.
@@ -15,7 +15,7 @@
 # Nothing is destructive by default: without --home the stock launcher is left alone, so you can try Glass first.
 set -euo pipefail
 
-REPO="AazainKhan/glass-tv-launcher"
+REPO="AazainKhan/vitre"
 PKG="dev.glasslauncher"
 APK=""
 DO_HOME=0; DO_PERMS=0; ASSUME_YES=0; DO_UNINSTALL=0
@@ -82,12 +82,12 @@ fi
 # Android 9+ (API 28 - Glass's minSdk). A TV reporting less is an old Fire OS and will install but may misbehave.
 SDK=$(A shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 0)
 case "$SDK" in ''|*[!0-9]*) SDK=0 ;; esac
-[ "$SDK" -ge 28 ] || say "warning: Android API $SDK is below Glass's minSdk 28; it may not start."
+[ "$SDK" -ge 28 ] || say "warning: Android API $SDK is below VITRE's minSdk 28; it may not start."
 say "device ready (API $SDK)"
 
 # --- uninstall -------------------------------------------------------------------------------------------------------
 if [ "$DO_UNINSTALL" = 1 ]; then
-  A uninstall "$PKG" >/dev/null 2>&1 && say "removed Glass" || say "Glass was not installed"
+  A uninstall "$PKG" >/dev/null 2>&1 && say "removed VITRE" || say "VITRE was not installed"
   A uninstall --user 0 "$PKG" >/dev/null 2>&1 || true
   # The stock launcher must come back or the TV has no home screen.
   have_stock && { A shell pm enable com.amazon.tv.launcher >/dev/null 2>&1 && say "re-enabled the stock launcher"; }
@@ -117,16 +117,16 @@ fi
 if present && ! A install -r "$APK" >/dev/null 2>&1; then
   # Signing mismatch: an APK signed with another key cannot update the installed one, and the raw failure reads as an
   # unexplained INSTALL_FAILED_UPDATE_INCOMPATIBLE. Say what it means.
-  say "in-place update failed: the installed Glass is signed with a different key than this APK"
+  say "in-place update failed: the installed VITRE is signed with a different key than this APK"
   say "(expected when mixing your own build with a release one - they use different keys)"
   # A system copy (installed as a system app, e.g. by a Magisk module) is the other half: it survives uninstall and
   # has its own signature, so removing the update is not enough.
   # dumpsys, not `pm path`: with an update present, `pm path` lists only the /data copy and hides the /system one.
   if [ "$(A shell dumpsys package "$PKG" 2>/dev/null | tr -d '\r' | grep -c 'codePath=/system')" -gt 0 ]; then
-    say "note: Glass is also a SYSTEM app here, so it survives uninstall and keeps its own signature -"
+    say "note: VITRE is also a SYSTEM app here, so it survives uninstall and keeps its own signature -"
     say "      only an APK with the matching key can replace it"
   fi
-  ask "Uninstall the installed Glass and install this one?" || die "left as it was"
+  ask "Uninstall the installed VITRE and install this one?" || die "left as it was"
   A uninstall "$PKG" >/dev/null 2>&1 || true
   if ! A install "$APK" >/dev/null 2>&1; then
     say "install failed - the key still does not match"
@@ -139,20 +139,20 @@ else
 fi
 # A package previously removed for user 0 stays removed through a plain install; this is what makes it runnable.
 reinclude
-present && say "installed Glass" || die "installed but not visible to user 0 (try: adb shell cmd package install-existing $PKG)"
+present && say "installed VITRE" || die "installed but not visible to user 0 (try: adb shell cmd package install-existing $PKG)"
 
 # --- optional: home screen --------------------------------------------------------------------------------------------
 if [ "$DO_HOME" = 1 ]; then
   if have_stock; then
     # Fire OS only. Disabling is instant and reversible, and is what makes Glass HOME at boot without a service.
-    if ask "Disable the stock Fire TV launcher so Glass is HOME? (reversible)"; then
+    if ask "Disable the stock Fire TV launcher so VITRE is HOME? (reversible)"; then
       A shell pm disable-user --user 0 com.amazon.tv.launcher >/dev/null && say "stock launcher disabled"
       say "KEEP THIS: to undo, adb shell pm enable com.amazon.tv.launcher"
-      say "With the stock launcher disabled and Glass removed the TV has NO home screen - re-enable it over adb."
+      say "With the stock launcher disabled and VITRE removed the TV has NO home screen - re-enable it over adb."
     fi
   else
     # Google TV / Android TV: there is no adb command for the default home, so hand over to the picker.
-    say "Google TV / Android TV: choose Glass under Settings -> Home Button -> Make <app> the Default"
+    say "Google TV / Android TV: choose VITRE under Settings -> Home Button -> Make <app> the Default"
     A shell am start -a android.settings.HOME_SETTINGS >/dev/null 2>&1 || true
   fi
   A shell am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1 || true
@@ -173,5 +173,5 @@ if [ "$DO_PERMS" = 1 ]; then
 fi
 
 say ""
-say "Done. Open Glass from the app list, or press Home if you used --home."
+say "Done. Open VITRE from the app list, or press Home if you used --home."
 say "Settings -> Root shows root-only extras (system app, debloat) when the TV is rooted."

@@ -26,7 +26,7 @@ class SampleAddonProvider : GlassAddonProvider() {
             items = (1..5).map {
                 FeedItem(
                     id = "item$it", title = "Sample Title $it", subtitle = "$flavour pick",
-                    description = "A sample title supplied by the sample add-on. Glass fetches the art itself.",
+                    description = "A sample title supplied by the sample add-on. VITRE fetches the art itself.",
                     image = art(it), link = "https://example.com/sample/$it",
                 )
             },

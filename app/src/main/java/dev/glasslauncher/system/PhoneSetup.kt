@@ -139,7 +139,7 @@ class PhoneSetupServer(
             """<h1>${esc(title)}</h1><p>Fields you leave empty stay unchanged.</p><form method="post">$inputs<button>Send to TV</button></form>"""
         }
         return """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Glass TV Launcher</title><style>
+<title>VITRE</title><style>
 :root{color-scheme:dark}body{margin:0;min-height:100vh;font:16px -apple-system,system-ui,sans-serif;color:#fff;
 background:radial-gradient(circle at 20% 10%,#3a2e8f,transparent 55%),radial-gradient(circle at 90% 30%,#0e7c86,transparent 50%),#0b1026;display:flex;justify-content:center}
 main{margin:24px 16px;padding:24px;max-width:460px;width:100%;border-radius:28px;background:rgba(255,255,255,.08);

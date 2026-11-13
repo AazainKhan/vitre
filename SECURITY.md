@@ -9,4 +9,4 @@ Areas worth a careful look:
 - Stored API keys and the Plex token (kept in app-private storage; backup is disabled).
 - The in-app updater, which downloads APKs from this repository's GitHub Releases.
 
-Glass TV Launcher contains no analytics, ads or crash reporting.
+VITRE contains no analytics, ads or crash reporting.

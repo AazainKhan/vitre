@@ -1,6 +1,6 @@
-# Contributing to Glass TV Launcher
+# Contributing to VITRE
 
-Thanks for helping. Glass TV Launcher is a Kotlin + Jetpack Compose for TV app (single `:app` module, package `dev.glasslauncher`). Bug reports, device compatibility reports and pull requests are all welcome.
+Thanks for helping. VITRE is a Kotlin + Jetpack Compose for TV app (single `:app` module, package `dev.glasslauncher`). Bug reports, device compatibility reports and pull requests are all welcome.
 
 ## Build
 

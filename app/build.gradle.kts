@@ -21,7 +21,7 @@ android {
         // re-reads it on every build instead of keeping the first one.
         versionCode = 3 // replaced per build in androidComponents below (BuildMinute)
         versionName = "0.3.0"
-        buildConfigField("String", "UPDATE_REPO", "\"AazainKhan/glass-tv-launcher\"")
+        buildConfigField("String", "UPDATE_REPO", "\"AazainKhan/vitre\"")
     }
 
     signingConfigs {

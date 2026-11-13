@@ -189,7 +189,7 @@ class BrowserActivity : Activity() {
             if (Link.httpsHost(dlUrl) == null) { toast("Downloads need an https link"); return@setDownloadListener }
             val name = URLUtil.guessFileName(dlUrl, disposition, mime).take(Link.MAX_NAME)
             val sent = link.send(Msg.Download(dlUrl, name, mime.orEmpty().take(127), BrowserRules.host(url).orEmpty()))
-            if (!sent) toast("Glass isn't listening; open the browser from Glass Downloads")
+            if (!sent) toast("VITRE isn't listening; open the browser from VITRE Downloads")
         }
         stage.addView(w, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         if (pointerView.parent == null) stage.addView(pointerView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -354,7 +354,7 @@ class BrowserActivity : Activity() {
         val id = ++seq
         // The committed page's host (web.url), not the last load that merely started: a navigation that never commits must not lend its host.
         val host = if (target == Target.Address) "" else BrowserRules.host(web?.url.orEmpty()).orEmpty()
-        if (!link.send(Msg.TextRequest(id, host, kind, kind == "password"))) { toast("Glass isn't listening; open the browser from Glass Downloads"); return }
+        if (!link.send(Msg.TextRequest(id, host, kind, kind == "password"))) { toast("VITRE isn't listening; open the browser from VITRE Downloads"); return }
         pending = PendingText(id, target, if (target == Target.Page) script.nonce else null)
         main.removeCallbacks(dropPending); main.postDelayed(dropPending, 120_000)
     }

@@ -1,10 +1,10 @@
-# Glass add-on template
+# VITRE add-on template
 
 A minimal add-on that shows every extension point there is today: a Control Center tile, a remote-button action (both from the
 service), and a Top Shelf feed, a Home row and a settings form (from the provider). The full walk-through is
 [docs/addons/10-minute-guide.md](../docs/addons/10-minute-guide.md).
 
-This is a standalone Gradle project. It is not in Glass's `settings.gradle.kts` and nothing in `:app` depends on it. There is no
+This is a standalone Gradle project. It is not in VITRE's `settings.gradle.kts` and nothing in `:app` depends on it. There is no
 Maven artifact for the add-on API yet (nothing is published), so the template reaches it by path:
 
 - **In this repo:** nothing to do. `settings.gradle.kts` includes `../addon-api` and reads versions from `../gradle/libs.versions.toml`.

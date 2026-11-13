@@ -1,6 +1,6 @@
 # Third-party software
 
-Glass TV Launcher bundles or links the following. All are licensed under Apache-2.0 unless noted; full text at <https://www.apache.org/licenses/LICENSE-2.0>.
+VITRE bundles or links the following. All are licensed under Apache-2.0 unless noted; full text at <https://www.apache.org/licenses/LICENSE-2.0>.
 
 | Component | Copyright |
 |---|---|
@@ -16,6 +16,6 @@ Test-only tools (Robolectric, Roborazzi, Compose test libraries) are not part of
 
 ## Services and trademarks
 
-Glass TV Launcher is an independent project. It is not affiliated with, endorsed by or sponsored by Apple Inc., Amazon.com, Inc., Google LLC, Netflix, Plex, TMDB or JustWatch. "Apple TV", "tvOS" and "Aerial" are trademarks of Apple Inc.; "Fire TV" and "Alexa" are trademarks of Amazon.com, Inc.; "Android TV" and "Google TV" are trademarks of Google LLC. These names are used only to describe compatibility or visual inspiration.
+VITRE is an independent project. It is not affiliated with, endorsed by or sponsored by Apple Inc., Amazon.com, Inc., Google LLC, Netflix, Plex, TMDB or JustWatch. "Apple TV", "tvOS" and "Aerial" are trademarks of Apple Inc.; "Fire TV" and "Alexa" are trademarks of Amazon.com, Inc.; "Android TV" and "Google TV" are trademarks of Google LLC. These names are used only to describe compatibility or visual inspiration.
 
 Aerial videos are streamed from Apple's servers and remain © Apple. This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming availability data is provided by JustWatch.

@@ -1490,7 +1490,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                                     val next = dev.glasslauncher.system.SleepTimer.next(dev.glasslauncher.system.SleepTimer.choice(context))
                                     if (next > 0 && !dev.glasslauncher.system.SleepTimer.canSleep(context)) {
                                         // No root and the accessibility service is off: it could not sleep the stick. Say so and open the page.
-                                        dev.glasslauncher.system.RemoteNotice.show(context, "Sleep Timer needs Glass turned on in Accessibility", 4_000)
+                                        dev.glasslauncher.system.RemoteNotice.show(context, "Sleep Timer needs VITRE turned on in Accessibility", 4_000)
                                         runCatching {
                                             context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
                                                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -1522,7 +1522,7 @@ private fun ControlCenterBody(edit: ((LauncherConfig) -> LauncherConfig) -> Unit
                             "power" -> {
                                 val go = tap {
                                     if (dev.glasslauncher.system.PowerControl.mode(context) == dev.glasslauncher.system.PowerControl.Mode.Unavailable) {
-                                        dev.glasslauncher.system.RemoteNotice.show(context, "Power Off needs Glass turned on in Accessibility", 4_000)
+                                        dev.glasslauncher.system.RemoteNotice.show(context, "Power Off needs VITRE turned on in Accessibility", 4_000)
                                     } else {
                                         closeAll()
                                         scope.launch {

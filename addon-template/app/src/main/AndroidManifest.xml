@@ -8,7 +8,7 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_addon"
-        android:label="My Glass Add-on">
+        android:label="My VITRE Add-on">
 
         <!-- The one service Glass reads (one add-on service per package). It carries the add-on's declaration. -->
         <service

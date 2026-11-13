@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="${TMPDIR:-/tmp}/glass-tv-launcher-publish"
+OUT="${TMPDIR:-/tmp}/vitre-publish"
 DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,7 +53,7 @@ cd "$OUT"
 git init -q -b main
 git add -A
 GIT_AUTHOR_NAME="$NAME" GIT_AUTHOR_EMAIL="$EMAIL" GIT_COMMITTER_NAME="$NAME" GIT_COMMITTER_EMAIL="$EMAIL" \
-  git commit -q -m "Glass TV Launcher"
+  git commit -q -m "VITRE"
 echo "Clean copy committed in $OUT ($(git ls-files | wc -l | tr -d ' ') files)."
 echo "Review it, then publish with:"
-echo "  cd $OUT && git remote add origin https://github.com/AazainKhan/glass-tv-launcher.git && git push -u origin main"
+echo "  cd $OUT && git remote add origin https://github.com/AazainKhan/vitre.git && git push -u origin main"

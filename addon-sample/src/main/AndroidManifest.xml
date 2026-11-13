@@ -7,7 +7,7 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_addon"
-        android:label="Glass Sample Add-on">
+        android:label="VITRE Sample Add-on">
 
         <service
             android:name=".SampleAddonService"

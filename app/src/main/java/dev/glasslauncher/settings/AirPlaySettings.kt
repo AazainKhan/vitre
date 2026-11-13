@@ -86,4 +86,4 @@ internal fun ColumnScope.AirPlayAboutPage(f: Modifier, open: (Overlay) -> Unit) 
 
 internal const val AIRPLAY_LICENCE =
     "AirPlay receiving by PhairPlay, licensed under the Apache License 2.0 (apache.org/licenses/LICENSE-2.0). " +
-        "PhairPlay is a separate app that you build and install yourself; Glass does not include it."
+        "PhairPlay is a separate app that you build and install yourself; VITRE does not include it."

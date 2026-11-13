@@ -33,7 +33,7 @@ case "${1:-status}" in
     adb shell appops set "$PKG" SYSTEM_ALERT_WINDOW allow
     # Glass declares the control permission too; if Glass went in first, reinstalling it re-grants.
     adb shell dumpsys package dev.glasslauncher | grep -q "com.phairplay.permission.CONTROL: granted=true" \
-      || echo "Note: reinstall Glass (scripts/build) so it's granted com.phairplay.permission.CONTROL."
+      || echo "Note: reinstall VITRE (scripts/build) so it's granted com.phairplay.permission.CONTROL."
     echo "PhairPlay installed. Turn AirPlay on from Control Center."
     ;;
   status)

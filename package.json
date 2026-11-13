@@ -1,5 +1,5 @@
 {
-  "name": "glass-tv-launcher-tooling",
+  "name": "vitre-tooling",
   "private": true,
   "description": "Dev tooling for driving the TV during development (agent-device).",
   "devDependencies": {

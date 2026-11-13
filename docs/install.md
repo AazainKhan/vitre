@@ -1,4 +1,4 @@
-# Installing Glass, step by step
+# Installing VITRE, step by step
 
 A walkthrough for a TV you have never sideloaded to. No root needed. Takes about five minutes, and nothing here is
 permanent — the last section undoes all of it.
@@ -19,28 +19,28 @@ You need `adb` (the Android Debug Bridge; it comes with [platform-tools](https:/
 and the TV and computer on the same Wi-Fi.
 
 ```bash
-curl -sL https://raw.githubusercontent.com/AazainKhan/glass-tv-launcher/master/install.sh | sh
+curl -sL https://raw.githubusercontent.com/AazainKhan/vitre/master/install.sh | sh
 ```
 
-That installs the latest release over the network. To also make Glass the home screen, add a flag:
+That installs the latest release over the network. To also make VITRE the home screen, add a flag:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/AazainKhan/glass-tv-launcher/master/install.sh | sh -s -- --home
+curl -sL https://raw.githubusercontent.com/AazainKhan/vitre/master/install.sh | sh -s -- --home
 ```
 
-Nothing is destructive without `--home`: you can install, look at Glass, and decide after. `--permissions` grants the
+Nothing is destructive without `--home`: you can install, look at VITRE, and decide after. `--permissions` grants the
 optional one-time permissions, and `--help` lists everything.
 
 If you would rather build it yourself, `scripts/build release` and then `./install.sh --apk app/build/outputs/apk/release/app-release.apk`.
 
 ## On the TV itself (Termux)
 
-If you have [Termux](https://termux.dev) on the TV, or just do not want a cable, Glass installs from the TV:
+If you have [Termux](https://termux.dev) on the TV, or just do not want a cable, VITRE installs from the TV:
 
 1. In Termux: `pkg install android-tools` (that is `adb`).
 2. Find the TV's IP: **Settings → My Fire TV → About → Network** (Fire TV) or **Settings → Network & Internet** (Google TV).
 3. `adb connect <the-ip>:5555`
-4. `curl -sL https://raw.githubusercontent.com/AazainKhan/glass-tv-launcher/master/install.sh | sh`
+4. `curl -sL https://raw.githubusercontent.com/AazainKhan/vitre/master/install.sh | sh`
 
 Over the network, allow ADB on the TV first — the next two sections show where that switch lives.
 
@@ -50,11 +50,11 @@ Over the network, allow ADB on the TV first — the next two sections show where
 |---|---|
 | ADB debugging (needed to install at all) | **Settings → My Fire TV → Developer Options → ADB Debugging** |
 | The TV's IP address | **Settings → My Fire TV → About → Network** |
-| Make Glass the home screen | **Settings → Applications → Manage Installed Applications → Glass → Home** *(only on some builds)* |
+| Make VITRE the home screen | **Settings → Applications → Manage Installed Applications → VITRE → Home** *(only on some builds)* |
 
-Fire OS has no "default launcher" picker like Android TV, so a Fire TV is made to use Glass one of two ways:
+Fire OS has no "default launcher" picker like Android TV, so a Fire TV is made to use VITRE one of two ways:
 
-- **Home Button Takeover** in Glass's own Settings — an accessibility service. It is gentle and needs nothing else, but
+- **Home Button Takeover** in VITRE's own Settings — an accessibility service. It is gentle and needs nothing else, but
   it works by catching the stock launcher's window, so the stock home flashes up briefly first.
 - **Disable the stock launcher** (what `install.sh --home` does). Instant and complete:
 
@@ -62,19 +62,19 @@ Fire OS has no "default launcher" picker like Android TV, so a Fire TV is made t
   adb shell pm disable-user --user 0 com.amazon.tv.launcher
   ```
 
-  Keep the undo line to hand. With the stock launcher disabled **and** Glass uninstalled, the TV has no home screen at
+  Keep the undo line to hand. With the stock launcher disabled **and** VITRE uninstalled, the TV has no home screen at
   all until you run `adb shell pm enable com.amazon.tv.launcher` — which `install.sh --uninstall` does for you.
 
-If your remote has an **app button** you never use, Glass can remap it (Settings → Remote Buttons) so you keep a way
+If your remote has an **app button** you never use, VITRE can remap it (Settings → Remote Buttons) so you keep a way
 into the store. The dedicated **Settings button** on Fire TV remotes opens Fire's quick menu; `install.sh` leaves it
-alone, and Glass adds its own row to that menu (see below).
+alone, and VITRE adds its own row to that menu (see below).
 
 ## Google TV / Android TV: where the switches are
 
 | What | Where |
 |---|---|
 | ADB debugging | **Settings → System → About → tap Build 7 times**, then **Settings → System → Developer options → USB/Network debugging** |
-| Make Glass the default home | **Settings → System → Home Button → Make Glass TV Launcher the Default** |
+| Make VITRE the default home | **Settings → System → Home Button → Make VITRE the Default** |
 
 There is no adb command for "be the default home" on Google TV, so `install.sh --home` opens that settings page for you.
 
@@ -84,7 +84,7 @@ There is no adb command for "be the default home" on Google TV, so `install.sh -
 ./install.sh --uninstall
 ```
 
-That removes Glass and re-enables the stock launcher, so the TV is exactly as it was. Your Glass layout is kept unless
+That removes VITRE and re-enables the stock launcher, so the TV is exactly as it was. Your VITRE layout is kept unless
 you also clear its data:
 `adb shell pm clear dev.glasslauncher`.
 
@@ -92,15 +92,15 @@ you also clear its data:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | the installed Glass was signed with a different key — expected if you mix your own build with a release APK, since they use different keys | `install.sh` offers to uninstall and reinstall. If Glass is **also a system app** (e.g. installed by a Magisk module) it survives the uninstall and keeps its own signature, so only an APK with the matching key will replace it — install your own build with `--apk` |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | the installed VITRE was signed with a different key — expected if you mix your own build with a release APK, since they use different keys | `install.sh` offers to uninstall and reinstall. If VITRE is **also a system app** (e.g. installed by a Magisk module) it survives the uninstall and keeps its own signature, so only an APK with the matching key will replace it — install your own build with `--apk` |
 | `no adb device` | ADB debugging off, or wrong IP | see the tables above; `adb connect <ip>:5555` |
 | Installs but never starts | the TV is older than Android 9 | check `adb shell getprop ro.build.version.sdk` (needs 28+) |
 | The TV shows a black screen after uninstalling | the stock launcher is still disabled | `adb shell pm enable com.amazon.tv.launcher` |
-| Glass installs but Home still opens Amazon | the stock launcher is still enabled | run `./install.sh --home`, or use Home Button Takeover |
+| VITRE installs but Home still opens Amazon | the stock launcher is still enabled | run `./install.sh --home`, or use Home Button Takeover |
 
 ## Optional extras
 
-Everything below is optional; Glass is complete without it, and each only saves a trip through a system menu.
+Everything below is optional; VITRE is complete without it, and each only saves a trip through a system menu.
 `install.sh --permissions` grants the ones that are adb-able:
 
 ```bash
@@ -113,6 +113,6 @@ adb shell pm grant dev.glasslauncher android.permission.RECORD_AUDIO
 
 Two switches stay manual: **Notification access** (Now Playing) and the optional **accessibility services**.
 
-On a rooted TV, `install.sh` also gets a Glass row in Fire OS's own quick menu (the Settings-key panel), so Fire's
-settings and Glass's sit in one place. That is written by `firestick-unlocked/tools/quicksettings/glass-row.sh`; the
-TV does not need to be rooted for Glass itself.
+On a rooted TV, `install.sh` also gets a VITRE row in Fire OS's own quick menu (the Settings-key panel), so Fire's
+settings and VITRE's sit in one place. That is written by `firestick-unlocked/tools/quicksettings/glass-row.sh`; the
+TV does not need to be rooted for VITRE itself.

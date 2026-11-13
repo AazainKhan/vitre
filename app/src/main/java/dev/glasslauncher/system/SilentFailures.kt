@@ -71,7 +71,7 @@ object CrashRecovery {
 
     private const val SEEN = "exit-seen"
     private const val PENDING = "exit-pending"
-    private const val LINE = "Glass restarted after it stopped unexpectedly."
+    private const val LINE = "VITRE restarted after it stopped unexpectedly."
 
     /**
      * At start: reads how the last process ended. A recent crash is kept as pending, not shown: Glass is not in front yet, and Fire's

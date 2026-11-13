@@ -25,12 +25,12 @@ case "${1:-status}" in
     adb install -r "$APK"
     # Glass declares the permission too; if Glass went in first, the grant is there already. If not, reinstall Glass.
     adb shell dumpsys package dev.glasslauncher | grep -q "dev.glasslauncher.permission.BROWSER: granted=true" \
-      || echo "Note: reinstall Glass (scripts/build) so it's granted dev.glasslauncher.permission.BROWSER."
-    echo "Glass Browser installed. Open it from Downloads > Open Browser."
+      || echo "Note: reinstall VITRE (scripts/build) so it's granted dev.glasslauncher.permission.BROWSER."
+    echo "VITRE Browser installed. Open it from Downloads > Open Browser."
     ;;
   status)
     source "$ROOT/scripts/lib/device.sh"; require_device_access
-    adb shell dumpsys package "$PKG" | grep -m1 versionName || { echo "Glass Browser isn't installed"; exit 0; }
+    adb shell dumpsys package "$PKG" | grep -m1 versionName || { echo "VITRE Browser isn't installed"; exit 0; }
     adb shell dumpsys package dev.glasslauncher | grep "dev.glasslauncher.permission.BROWSER" | head -2 || true
     ;;
   uninstall)
