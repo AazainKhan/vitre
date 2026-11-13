@@ -44,13 +44,13 @@ class QuickMenuEntryTest {
             // Walk to the Fire TV settings tile; RequestFocus is not on the parked tiles.
             var steps = 0
             while (compose.focused()?.contains("fire_settings") != true && steps < 30) {
-                compose.press(Button.Right)
-                compose.waitForIdle()
+                compose.stepFocus(Button.Right)
                 steps++
             }
             assertTrue("the Fire TV settings tile must be reachable (focus=${compose.focused()})", compose.focused()?.contains("fire_settings") == true)
             compose.press(Button.Select)
-            compose.waitForIdle()
+            // The page opens on its own time (a real-time wait: a fixed one loses when the machine is busy).
+            compose.awaitUntil { texts().any { it.contains("Quick Menu") } && compose.focused()?.contains("Quick Menu") == true }
             assertTrue("the page must offer the Quick Menu", texts().any { it.contains("Quick Menu") })
             assertTrue("and it is the first row (focus=${compose.focused()})", compose.focused()?.contains("Quick Menu") == true)
         }

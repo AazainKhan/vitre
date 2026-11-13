@@ -54,8 +54,7 @@ class NoticeBlocklistTest {
     private fun walkTo(text: String, max: Int = 40): Boolean {
         var steps = 0
         while (compose.focused()?.contains(text) != true && steps < max) {
-            compose.press(Button.Down)
-            compose.waitForIdle()
+            compose.stepFocus(Button.Down)
             steps++
         }
         return compose.focused()?.contains(text) == true
@@ -88,10 +87,10 @@ class NoticeBlocklistTest {
             assertTrue("Netflix must be listed", walkTo("Netflix"))
             assertEquals("the row must start on", ToggleableState.On, stateOf("Netflix"))
             compose.press(Button.Select)
-            compose.mainClock.advanceTimeBy(1500)
-            compose.waitForIdle()
-            assertTrue("focus stays on the row after a toggle", compose.focused()?.contains("Netflix") == true)
             assertEquals("Select must silence that app", ToggleableState.Off, awaitState("Netflix", ToggleableState.Off))
+            // The row is rebuilt when the write lands; focus is back on it once the page has settled.
+            compose.awaitUntil { compose.focused()?.contains("Netflix") == true }
+            assertTrue("focus stays on the row after a toggle", compose.focused()?.contains("Netflix") == true)
             // And another app is untouched, so it is a per-app switch and not a whole-page one.
             assertEquals(ToggleableState.On, stateOf("YouTube"))
         }

@@ -30,6 +30,10 @@ class ConfigStoreFullDiskTest {
             val store = ConfigStore(context, scope, files)
             assertTrue(runBlocking { store.update { it.copy(boldText = true) } })
             assertTrue("the store writes into ${dir.path}", dir.isDirectory)
+            // `config` follows the DataStore from another thread, so the value lands after update() returns: wait for it, in real time.
+            val deadline = System.nanoTime() + 20_000_000_000L
+            while (!store.config.value.boldText && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue("the first write reaches the config", store.config.value.boldText)
             // A directory nothing can be created in: the write's temp file fails with an IOException, as ENOSPC does.
             check(dir.setWritable(false)) { "cannot make the directory read-only here" }
             try {

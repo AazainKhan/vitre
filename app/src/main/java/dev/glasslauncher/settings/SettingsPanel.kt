@@ -231,7 +231,7 @@ fun SettingsPanel(
                 Page.Featured -> FeaturedPage(model, cfg, f, open, ::push)
                 Page.PlexLink -> PlexLinkPage(model, cfg, f, ::pop)
                 Page.Hidden -> HiddenPage(model, cfg, layout, f, ::push) { refocus(first) }
-                Page.Notifications -> NotificationsPage(model, cfg, layout, f) { refocus(first) }
+                Page.Notifications -> NotificationsPage(model, cfg, layout, f)
                 Page.HideMore -> HideMorePage(model, layout, f) { refocus(first) }
                 Page.IconPack -> IconPackPage(model, cfg, f)
                 Page.Screensaver -> ScreensaverPage(model, cfg, f, ::push)
@@ -590,7 +590,7 @@ private fun ColumnScope.HiddenPage(model: HomeModel, cfg: LauncherConfig, layout
  * indistinguishable from one that has until it does.
  */
 @Composable
-private fun ColumnScope.NotificationsPage(model: HomeModel, cfg: LauncherConfig, layout: HomeLayout, f: Modifier, refocus: () -> Unit) {
+private fun ColumnScope.NotificationsPage(model: HomeModel, cfg: LauncherConfig, layout: HomeLayout, f: Modifier) {
     PanelTitle("Notifications")
     Hint("Switch an app off to keep it out of the drawer.")
     val blocked = cfg.blockedNoticePackages.toSet()
@@ -601,7 +601,7 @@ private fun ColumnScope.NotificationsPage(model: HomeModel, cfg: LauncherConfig,
                 model.edit { c ->
                     c.copy(blockedNoticePackages = if (app.packageName in blocked) c.blockedNoticePackages - app.packageName else c.blockedNoticePackages + app.packageName)
                 }
-                refocus()
+                // No refocus: the row stays where it is (a switch does not remove itself), so focus stays on it for the next app.
             },
             if (i == 0) f else Modifier,
             checked = app.packageName !in blocked,

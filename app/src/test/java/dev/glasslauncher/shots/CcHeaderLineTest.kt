@@ -30,6 +30,8 @@ class CcHeaderLineTest {
             compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
             compose.waitForTag("control-center")
             compose.settle()
+            // The header lays out while Control Center grows in: measure once the three have stopped moving, not after a fixed time.
+            compose.awaitStable { Triple(centre("cc-clock"), centre("cc-page-icon:0"), centre("cc-page-icon:1")) }
             val clock = centre("cc-clock")
             val icon = centre("cc-page-icon:0")
             assertEquals("the time and the first page icon share a vertical centre (dp)", icon, clock, 1f)

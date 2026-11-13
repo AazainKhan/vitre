@@ -60,15 +60,15 @@ class CcRoundCaptionTest {
             compose.settle()
             // Down to the round row, then across to Theme: the pills above never take a caption (they show their
             // own title), so only a 1x1 round proves it.
-            compose.press(Button.Down, Button.Down)
+            compose.stepFocus(Button.Down); compose.stepFocus(Button.Down)
             compose.settle()
-            repeat(6) {
-                if (!compose.focused().orEmpty().contains("appearance")) { compose.press(Button.Right); compose.settle() }
-            }
+            var steps = 0
+            while (!compose.focused().orEmpty().contains("appearance") && steps++ < 12) compose.stepFocus(Button.Right)
+            compose.awaitUntil { caption().startsWith("Theme") }
             assertTrue("the focused round button's name must be on screen, was \"${caption()}\"", caption().startsWith("Theme"))
             // Moving off it moves the caption, rather than leaving the old one behind.
-            compose.press(Button.Right)
-            compose.settle()
+            compose.stepFocus(Button.Right)
+            compose.awaitUntil { !exists("cc-round-label") || !caption().startsWith("Theme") }
             val after = if (exists("cc-round-label")) caption() else ""
             assertFalse("the caption must follow focus, not stick to Theme", after.startsWith("Theme"))
         }
@@ -82,6 +82,7 @@ class CcRoundCaptionTest {
             compose.press(Button.Up, Button.Up, Button.Up, Button.Select)
             compose.waitForTag("control-center")
             compose.settle()
+            compose.awaitUntil { exists("cc-add") }
             assertTrue("edit mode is on", exists("cc-add"))
             // The edit hints own the bottom there, so the caption stays out of the way.
             assertEquals("no caption in edit mode", false, exists("cc-round-label"))

@@ -122,6 +122,52 @@ fun sheet(name: String, shots: List<Bitmap>, stepMs: Long, columns: Int = 4): Fi
 }
 
 /**
+ * Waits in REAL time (advancing the virtual clock a little each round) until [cond] holds or [timeoutMs] is up; whether it held.
+ * Anything that lands on a real thread (a DataStore write, a bake, a page opening on a loaded machine) is not done after a fixed
+ * amount of virtual time: a fixed wait passes alone and fails when the machine is busy. Wait for the thing itself.
+ */
+fun ComposeTestRule.awaitUntil(timeoutMs: Long = 30_000, cond: () -> Boolean): Boolean {
+    val end = System.nanoTime() + timeoutMs * 1_000_000
+    while (!runCatching(cond).getOrDefault(false)) {
+        if (System.nanoTime() > end) return false
+        mainClock.advanceTimeBy(50)
+        Thread.sleep(20)
+        waitForIdle()
+    }
+    return true
+}
+
+/** Reads [read] until it gives the same answer [rounds] times in a row (a layout or an animation has stopped moving), and returns it. */
+fun <T> ComposeTestRule.awaitStable(rounds: Int = 5, timeoutMs: Long = 30_000, read: () -> T?): T? {
+    val end = System.nanoTime() + timeoutMs * 1_000_000
+    var last: T? = null
+    var same = 0
+    while (same < rounds && System.nanoTime() < end) {
+        val now = runCatching(read).getOrNull()
+        same = if (now != null && now == last) same + 1 else 0
+        last = now
+        mainClock.advanceTimeBy(50)
+        Thread.sleep(20)
+        waitForIdle()
+    }
+    return if (same >= rounds) last else null
+}
+
+/**
+ * Presses a direction and waits for focus to move. A press made before the screen under it is ready is lost on a busy machine,
+ * so it is pressed again after [perPressMs] without a move (until [timeoutMs]); a press that cannot move focus (the end of a list) returns false.
+ */
+fun ComposeTestRule.stepFocus(button: Button, timeoutMs: Long = 4_000, perPressMs: Long = 1_500): Boolean {
+    val before = focused()
+    val end = System.nanoTime() + timeoutMs * 1_000_000
+    while (true) {
+        press(button)
+        if (awaitUntil(perPressMs) { focused() != before }) return true
+        if (System.nanoTime() > end) return false
+    }
+}
+
+/**
  * Lets animations, the backdrop swap and off-thread image decodes finish before a capture.
  *
  * Image decodes and backdrop bakes run on real background threads, so a fixed sleep is a race that a cold or busy
