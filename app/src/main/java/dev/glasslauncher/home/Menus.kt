@@ -634,7 +634,7 @@ private fun FolderView(
                         Row(horizontalArrangement = Arrangement.spacedBy(FolderGeometry.colGap)) {
                             row.forEachIndexed { i, app ->
                                 val key = appKey(app.packageName)
-                                Box(Modifier.width(FolderGeometry.tileWidth).glide(key)) {
+                                Box(Modifier.width(FolderGeometry.tileWidth).glide(key, lifted = rearranging == key)) {
                                     AppCell(
                                         app = app,
                                         model = model,

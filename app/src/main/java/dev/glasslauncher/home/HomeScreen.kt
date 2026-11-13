@@ -1783,7 +1783,7 @@ private fun HomeList(
                 row.forEach { cell ->
                     // Keyed: a cell's composition (its focus, its glide) moves with it when its row shifts.
                     androidx.compose.runtime.key(cellKey(cell)) {
-                    Box(Modifier.weight(1f).glide(cellKey(cell)).onFocusChanged { if (it.hasFocus) GridHost.col = row.indexOf(cell) }) {
+                    Box(Modifier.weight(1f).glide(cellKey(cell), lifted = moving == cellKey(cell)).onFocusChanged { if (it.hasFocus) GridHost.col = row.indexOf(cell) }) {
                         when (cell) {
                             is Cell.Settings -> SettingsCell(requester(SETTINGS_TILE_KEY), { onFocused(SETTINGS_TILE_KEY, i + 2) }, onSettings)
                             is Cell.Item -> when (val item = cell.item) {
@@ -1881,7 +1881,7 @@ private fun DockTray(
         Row(horizontalArrangement = Arrangement.spacedBy(m.gutter), modifier = Modifier.fillMaxWidth().stopAtRowEnds().testTag("dock")) {
             apps.take(m.columns).forEach { app ->
               androidx.compose.runtime.key(appKey(app.packageName)) {
-                Box(Modifier.weight(1f).glide(appKey(app.packageName))) {
+                Box(Modifier.weight(1f).glide(appKey(app.packageName), lifted = moving == appKey(app.packageName))) {
                     val key = appKey(app.packageName)
                     AppCell(
                         app = app,

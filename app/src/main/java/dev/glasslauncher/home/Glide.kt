@@ -80,9 +80,12 @@ private const val WRAP_OUT_FRACTION = 0.4f
 
 private val GlideSpec = spring<Offset>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = Offset(0.5f, 0.5f))
 
-/** Place the cell [key] with a glide from where it was last drawn (see [GlideTracker]). */
+/**
+ * Place the cell [key] with a glide from where it was last drawn (see [GlideTracker]). [lifted]: the cell being moved, drawn
+ * above its row: on a held arrow it is still sliding past neighbours that are now after it in the row, which drew over it (P322).
+ */
 @Composable
-fun Modifier.glide(key: String): Modifier {
+fun Modifier.glide(key: String, lifted: Boolean = false): Modifier {
     val tracker = LocalGlide.current ?: return this
     val slide = remember(key) { Animatable(Offset.Zero, Offset.VectorConverter) }
     val scope = rememberCoroutineScope()
@@ -92,15 +95,23 @@ fun Modifier.glide(key: String): Modifier {
     // The wrap's geometry for its fade: [0] where the exit started (x, relative to the new place), [1] how far past
     // the row's edge it is fully gone, [2] 0 while exiting, 1 while entering. [3] the tile's width, from layout.
     val wrap = remember(key) { floatArrayOf(0f, 1f, 0f, 0f) }
+    // The opacity this cell was last drawn at, and a fade back to solid for a wrap cut short by the next step (P322).
+    val drawnAlpha = remember(key) { floatArrayOf(1f) }
+    val unfade = remember(key) { Animatable(1f) }
     /** Runs the glide for [from]: a plain one, or a wrap's exit and entry when it changes row and column. */
     suspend fun run(from: Offset, predictedStart: Boolean) {
         val tile = if (wrap[3] > 0f) wrap[3] else tracker.tileWidth
         // Positions carry float noise (6e-5 px): a row change is a real vertical distance.
         val changesRow = kotlin.math.abs(from.y) > 1f
         val wraps = changesRow && tile > 0f && kotlin.math.abs(from.x) > tile * 0.5f
+        // P322: a held arrow moves the tile again before this cell's last glide ends. It goes on from where it is drawn and
+        // at the speed it has (snapping to rest there made the neighbours flicker), and a wrap cut short fades back in from
+        // the opacity it had instead of popping solid.
+        if (wrapping && !wraps) scope.launch { unfade.snapTo(drawnAlpha[0]); unfade.animateTo(1f, tween(WRAP_IN_MS)) }
         wrapping = wraps
         if (changesRow) GlideTracker.wrapGlides++
         if (predictedStart) GlideTracker.predictedGlides++ else GlideTracker.measuredGlides++
+        val velocity = slide.velocity
         slide.snapTo(from)
         try {
             if (wraps) {
@@ -115,7 +126,7 @@ fun Modifier.glide(key: String): Modifier {
                 wrap[2] = 1f
                 slide.snapTo(Offset(-sign * gap, 0f))
                 slide.animateTo(Offset.Zero, tween(WRAP_IN_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-            } else slide.animateTo(Offset.Zero, GlideSpec)
+            } else slide.animateTo(Offset.Zero, GlideSpec, initialVelocity = velocity)
         } finally { if (slide.value == Offset.Zero) { wrapping = false; GlideTracker.wrapAlpha = 1f } }
     }
     // The offset goes on in the frame the cell first composes in its new place, before it is laid out there.
@@ -129,7 +140,7 @@ fun Modifier.glide(key: String): Modifier {
         }
     }
     return this
-        .zIndex(if (wrapping) -1f else 0f)
+        .zIndex(if (wrapping) -1f else if (lifted) 1f else 0f)
         // Before the layers below: the position it records is the slot's, not the shrunk or faded one's.
         .onGloballyPositioned { c ->
             wrap[3] = c.size.width.toFloat()
@@ -161,7 +172,9 @@ fun Modifier.glide(key: String): Modifier {
                 alpha = if (wrap[2] == 0f) (1f - kotlin.math.abs(slide.value.x - wrap[0]) / (wrap[1] * WRAP_OUT_FRACTION * 0.5f)).coerceIn(0f, 1f)
                     else (1f - kotlin.math.abs(slide.value.x) / wrap[1]).coerceIn(0f, 1f)
                 GlideTracker.wrapAlpha = alpha
-            } else Modifier,
+                drawnAlpha[0] = alpha
+            } else if (unfade.isRunning) Modifier.graphicsLayer { alpha = unfade.value; drawnAlpha[0] = alpha }
+            else Modifier,
         )
         // A layout offset, not a graphicsLayer: a layer would clip the tiles' shadows at rest.
         .offset { IntOffset(slide.value.x.roundToInt(), slide.value.y.roundToInt()) }
