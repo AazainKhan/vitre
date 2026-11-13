@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -250,9 +252,8 @@ private fun DrawScope.drawHalo() {
 }
 
 /**
- * The bare time left on the wallpaper once Home has faded out (P93 #7): no glass, no gear, and it does not take focus
- * (there is nothing to focus while the chrome is gone; any key brings the rest back). A soft shadow keeps the digits
- * readable over a bright frame.
+ * The time left on the wallpaper once Home has faded out (P93 #7): the pill's glass without the gear, and it does not
+ * take focus (there is nothing to focus while the chrome is gone; any key brings the rest back).
  */
 @Composable
 private fun IdleClock(cfg: LauncherConfig, onLight: Boolean) {
@@ -261,10 +262,15 @@ private fun IdleClock(cfg: LauncherConfig, onLight: Boolean) {
         rememberClock(cfg.clock24h),
         style = Type.body.copy(fontSize = Type.body.fontSize * 0.86f, fontFeatureSettings = "tnum"),
         color = ink,
+        // The search and dot circles stay over the faded Home in their glass, so the clock keeps the same glass
+        // (P333). The old shadowElevation layer had no shape: it cast the text box's rectangle as a dark smear.
         modifier = Modifier
             .testTag("idle-clock")
-            .graphicsLayer { shadowElevation = 6.dp.toPx() }
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .statusGlass(Shapes.pill, onLight, halo = false)
+            // As tall as the circles and the full pill (32 dp), the digits centred in it.
+            .heightIn(min = 32.dp)
+            .wrapContentHeight()
+            .padding(horizontal = 14.dp),
     )
 }
 
