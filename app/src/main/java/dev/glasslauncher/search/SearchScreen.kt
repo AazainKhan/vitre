@@ -123,14 +123,15 @@ fun SearchScreen(
     val ink = if (palette.light) Color(0xFF14161C) else Color.White
     Column(Modifier.fillMaxSize().padding(horizontal = 48.dp).padding(top = 26.dp).testTag("search")) {
         // The query, in the same field as every text input in Glass: a magnifying glass, then the field while typing or a row to open it.
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.fillMaxWidth().height(54.dp)) {
-            // The gap leaves room for the focused row to lift without touching the glass.
+        // One fixed size whether typing or not (P323: it was nearly full width and grew when the keyboard opened). The gap is the
+        // look's 24 dp plus the focused row's 1.06 lift (3% of its width each side), so the lifted row never reaches the glass.
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SEARCH_GAP), modifier = Modifier.fillMaxWidth().height(54.dp)) {
             Icon(R.drawable.ic_search, ink.copy(alpha = 0.7f), 32)
             if (editing) dev.glasslauncher.home.SystemTextField(
                 value = query, onValueChange = { model.setQuery(it) }, focusRequester = field,
                 onFocusLost = { editing = false }, onBack = { returnToRow = true; editing = false }, imeAction = androidx.compose.ui.text.input.ImeAction.Search, onAction = { returnToRow = true; editing = false }, label = "Search",
-                modifier = Modifier.weight(1f).testTag("search-field"),
-            ) else Pill(ink, Modifier.weight(1f).height(44.dp).focusRequester(row).testTag("search-row"), onClick = { editing = true }) { focused ->
+                verticalPadding = 10.dp, modifier = Modifier.size(SEARCH_W, SEARCH_H).testTag("search-field"),
+            ) else Pill(ink, Modifier.size(SEARCH_W, SEARCH_H).focusRequester(row).testTag("search-row"), onClick = { editing = true }) { focused ->
                 Text(
                     query.ifEmpty { "Search" }, style = Type.heading, color = if (query.isEmpty()) pillInk(focused, ink).copy(alpha = 0.45f) else pillInk(focused, ink),
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).testTag("search-query"),
@@ -217,6 +218,10 @@ private fun completion(title: String, typed: String, color: Color): AnnotatedStr
 }
 
 /** A focusable capsule: translucent at rest, white (dark text) when focused or selected. */
+private val SEARCH_W = 480.dp
+private val SEARCH_H = 44.dp
+private val SEARCH_GAP = 40.dp
+
 @Composable
 private fun Pill(ink: Color, modifier: Modifier = Modifier, selected: Boolean = false, label: String? = null, contentPadding: androidx.compose.ui.unit.Dp = 14.dp, onClick: () -> Unit, onPlayPause: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.RowScope.(Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }

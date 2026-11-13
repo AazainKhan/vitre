@@ -376,6 +376,8 @@ internal fun SystemTextField(
     onAction: () -> Unit = {},
     /** What a screen reader says for the field (its text is read as the value). */
     label: String? = null,
+    /** Search keeps the field in a fixed 44 dp box (P323), so it needs less than the default. */
+    verticalPadding: androidx.compose.ui.unit.Dp = 14.dp,
 ) {
     val palette = LocalPalette.current
     var hadFocus by remember { mutableStateOf(false) }
@@ -410,7 +412,7 @@ internal fun SystemTextField(
                 if (it.isFocused) hadFocus = true else if (hadFocus) onFocusLost()
             }
             .background(palette.primary.copy(alpha = 0.16f), Shapes.row)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .padding(horizontal = 18.dp, vertical = verticalPadding),
     )
 }
 
