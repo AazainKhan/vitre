@@ -187,6 +187,8 @@ data class ScreensaverConfig(
     val asciiPiece: String? = null,
     /** A glass Now Playing card floats over the screensaver while music plays (P326). */
     val nowPlayingCard: Boolean = false,
+    /** The Now Playing saver shows a spectrum visualizer under the cover while music plays (P326). Needs audio access. */
+    val visualizer: Boolean = false,
 )
 
 @Serializable

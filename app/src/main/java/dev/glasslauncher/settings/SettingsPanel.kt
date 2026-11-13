@@ -742,6 +742,15 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     MenuRow("ASCII Art", { push(Page.AsciiPrefs) }, chevron = true, value = cfg.screensaver.asciiPiece)
     ToggleRow("Now Playing Card", cfg.screensaver.nowPlayingCard, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(nowPlayingCard = v)) } },
         help = "A small glass card with the cover and track floats over the screen saver while music plays.")
+    val audioGranted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    val askAudio = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) model.edit { it.copy(screensaver = it.screensaver.copy(visualizer = true)) }
+    }
+    ToggleRow("Visualizer", cfg.screensaver.visualizer && audioGranted, { v ->
+        if (!v) model.edit { it.copy(screensaver = it.screensaver.copy(visualizer = false)) }
+        else if (audioGranted) model.edit { it.copy(screensaver = it.screensaver.copy(visualizer = true)) }
+        else askAudio.launch(android.Manifest.permission.RECORD_AUDIO)
+    }, help = "Bars that move with the music under the full-screen Now Playing. Needs audio access; an app that keeps its audio private shows none.")
     MenuRow("Preview Now Playing", { AerialActivity.start(context, nowPlaying = true) },
         help = "The full-screen Now Playing screen saver: pick Now Playing as the current selection to use it.")
 }

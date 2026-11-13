@@ -23,6 +23,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Playing on a Sonos speaker: capture other apps' audio. Runtime RECORD_AUDIO plus the MediaProjection dialog, every session. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The Now Playing visualizer taps the output mix (audio session 0), which needs this as well as RECORD_AUDIO. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />

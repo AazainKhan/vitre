@@ -65,6 +65,17 @@ private fun boxBlur(src: IntArray, dst: IntArray, n: Int, radius: Int, horizonta
     }
 }
 
+/** The cover's average colour, lifted towards white so bars stay visible on the dimmed backdrop. */
+internal fun lightTint(art: Bitmap): Int {
+    val c = Bitmap.createScaledBitmap(art, 1, 1, true).getPixel(0, 0)
+    fun mix(v: Int) = (v + (255 - v) * 0.45f).toInt()
+    return Color.rgb(mix(Color.red(c)), mix(Color.green(c)), mix(Color.blue(c)))
+}
+
+/** The spectrum source for [cfg]: the output mix if the visualizer is on and audio access has been granted, else none. */
+internal fun defaultSpectrum(context: Context, cfg: ScreensaverConfig): SpectrumSource? =
+    if (cfg.visualizer && context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) OutputMixSpectrum() else null
+
 /** A thin progress line: two rounded bars, drawn only when the fraction changes. */
 private class ProgressLine(context: Context) : View(context) {
     private val track = android.graphics.Paint().apply { color = Color.argb(60, 255, 255, 255) }
@@ -160,7 +171,7 @@ class NowPlayingCardView(context: Context) : FrameLayout(context), Saver {
  * from the cover itself (a tiny copy, scaled up smoothly, dimmed). Paused music stays up, dimmer; with nothing playing it is a quiet clock.
  * It redraws on a track change and once a second for the progress line while playing, and not otherwise.
  */
-class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig) : FrameLayout(context), Saver {
+class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, private val spectrum: SpectrumSource? = defaultSpectrum(context, cfg)) : FrameLayout(context), Saver {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val handler = Handler(Looper.getMainLooper())
     private val backdrop = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
@@ -182,23 +193,32 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig) 
     private val tick = object : Runnable {
         override fun run() { np?.let { progress.fraction = progressOf(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
     }
+    private val note = TextView(context).apply { setTextColor(Color.argb(170, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER; visibility = GONE }
+    /** The visualizer layer, if it is on and the TV can give it audio. */
+    private val bars: VisualizerLayer? = spectrum?.let { src ->
+        VisualizerLayer(context, src) { note.text = "No sound to show: this app keeps its audio to itself."; note.visibility = VISIBLE }
+    }
 
     init {
         setBackgroundColor(Color.BLACK)
         addView(backdrop, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(dim, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        bars?.let { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
+        addView(note, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = context.dp(36f).toInt() })
         addView(content, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         addView(clock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
     }
 
     override fun start() { scope.launch { context.nowPlayingFlow().collect { show(it) } } }
 
-    override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null) }
+    override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt() }
 
     private fun show(n: NowPlaying?) {
         val was = np
         np = n
         handler.removeCallbacks(tick)
+        // The visualizer listens only while music plays; the rest of the time nothing runs.
+        if (n?.playing == true) bars?.run() else { bars?.halt(); note.visibility = GONE }
         if (n == null) {
             content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.visibility = VISIBLE
             return
@@ -211,6 +231,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig) 
                 if (n.art != null && !n.artIsIcon) {
                     art.setImageBitmap(n.art); art.scaleType = ImageView.ScaleType.CENTER_CROP
                     backdrop.setImageBitmap(softBackdrop(n.art))
+                    bars?.tint = lightTint(n.art)
                 } else {
                     art.setImageResource(R.drawable.ic_music_note); art.scaleType = ImageView.ScaleType.CENTER_INSIDE
                     backdrop.setImageDrawable(null)
