@@ -12,13 +12,18 @@ import android.view.WindowManager
 import dev.glasslauncher.app
 
 /** The view for the chosen screensaver: the photo slideshow, or Aerials. */
-internal fun saverView(context: Context, slideshow: Boolean, nearEndMs: Long = 0L, ascii: Boolean = false, asciiSlug: String? = null): android.view.View {
+internal fun saverView(context: Context, slideshow: Boolean, nearEndMs: Long = 0L, ascii: Boolean = false, asciiSlug: String? = null, nowPlaying: Boolean = false): android.view.View {
     val full = context.app.config.config.value
     // Reduce Motion: the slideshow cross-fades without its slow pan and zoom.
     val reduceMotion = dev.glasslauncher.ui.UiPrefs.resolve(context, full).reduceMotion
     val cfg = full.screensaver.let { if (reduceMotion) it.copy(kenBurns = false) else it }
-    return if (asciiSlug != null) AsciiView(context, cfg.copy(asciiPiece = asciiSlug)) else if (ascii) AsciiView(context, cfg) else if (slideshow) SlideshowView(context, cfg) else AerialView(context, cfg, nearEndMs)
+    if (nowPlaying) return NowPlayingSaverView(context, cfg)
+    val base = if (asciiSlug != null) AsciiView(context, cfg.copy(asciiPiece = asciiSlug)) else if (ascii) AsciiView(context, cfg) else if (slideshow) SlideshowView(context, cfg) else AerialView(context, cfg, nearEndMs)
+    // The glass Now Playing card over any other screensaver, if it is on.
+    return if (cfg.nowPlayingCard) CardOverSaver(context, base, NowPlayingCardView(context)) else base
 }
+
+private fun Context.nowPlayingChosen() = app.config.config.value.screensaverMode == dev.glasslauncher.data.ScreensaverMode.NowPlaying
 
 private fun Context.asciiChosen() = app.config.config.value.screensaverMode == dev.glasslauncher.data.ScreensaverMode.Ascii
 
@@ -32,7 +37,7 @@ class AerialDreamService : DreamService() {
         isInteractive = false
         isFullscreen = true
         isScreenBright = true
-        val v = saverView(this, slideshowChosen(), ascii = asciiChosen())
+        val v = saverView(this, slideshowChosen(), ascii = asciiChosen(), nowPlaying = nowPlayingChosen())
         setContentView(v)
         view = v as Saver
     }
@@ -64,13 +69,16 @@ class AerialActivity : Activity() {
         const val EXTRA_SLIDESHOW = "dev.glasslauncher.extra.SLIDESHOW"
         /** Play this ASCII piece (a preview from the menu, or a device test: `am start … --es dev.glasslauncher.extra.ASCII <slug>`). */
         const val EXTRA_ASCII = "dev.glasslauncher.extra.ASCII"
+        /** Play the full-screen Now Playing saver (a preview from the menu). */
+        const val EXTRA_NOW_PLAYING = "dev.glasslauncher.extra.NOW_PLAYING"
 
         /** Starts the screensaver fading in over Home rather than cutting to black. */
-        fun start(context: android.content.Context, slideshow: Boolean? = null, asciiSlug: String? = null) {
+        fun start(context: android.content.Context, slideshow: Boolean? = null, asciiSlug: String? = null, nowPlaying: Boolean = false) {
             val options = android.app.ActivityOptions.makeCustomAnimation(context, dev.glasslauncher.R.anim.glass_fade_in, dev.glasslauncher.R.anim.glass_hold)
             val intent = android.content.Intent(context, AerialActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             if (slideshow != null) intent.putExtra(EXTRA_SLIDESHOW, slideshow)
             if (asciiSlug != null) intent.putExtra(EXTRA_ASCII, asciiSlug)
+            if (nowPlaying) intent.putExtra(EXTRA_NOW_PLAYING, true)
             runCatching { context.startActivity(intent, options.toBundle()) }
         }
     }
@@ -88,7 +96,8 @@ class AerialActivity : Activity() {
         // without waiting minutes for one (`am start … --el dev.glasslauncher.extra.NEAR_END_MS 6000`).
         val nearEnd = intent.getLongExtra(EXTRA_NEAR_END_MS, 0L)
         val slideshow = if (intent.hasExtra(EXTRA_SLIDESHOW)) intent.getBooleanExtra(EXTRA_SLIDESHOW, false) else slideshowChosen()
-        val v = saverView(this, slideshow, nearEnd, ascii = !intent.hasExtra(EXTRA_SLIDESHOW) && asciiChosen(), asciiSlug = intent.getStringExtra(EXTRA_ASCII))
+        val v = saverView(this, slideshow, nearEnd, ascii = !intent.hasExtra(EXTRA_SLIDESHOW) && asciiChosen(), asciiSlug = intent.getStringExtra(EXTRA_ASCII),
+            nowPlaying = intent.getBooleanExtra(EXTRA_NOW_PLAYING, false) || (!intent.hasExtra(EXTRA_SLIDESHOW) && !intent.hasExtra(EXTRA_ASCII) && nowPlayingChosen()))
         setContentView(v)
         view = v as Saver
     }

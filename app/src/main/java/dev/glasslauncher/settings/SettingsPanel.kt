@@ -703,6 +703,7 @@ private fun screensaverName(mode: ScreensaverMode) = when (mode) {
     ScreensaverMode.Aerials -> "Aerials"
     ScreensaverMode.Slideshow -> "Slideshow"
     ScreensaverMode.Ascii -> "ASCII Art"
+    ScreensaverMode.NowPlaying -> "Now Playing"
     ScreensaverMode.System -> "Fire TV Screensaver"
 }
 
@@ -739,6 +740,10 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     MenuRow("Aerials", { push(Page.AerialsPrefs) }, chevron = true)
     MenuRow("Slideshow", { push(Page.SlideshowPrefs) }, chevron = true)
     MenuRow("ASCII Art", { push(Page.AsciiPrefs) }, chevron = true, value = cfg.screensaver.asciiPiece)
+    ToggleRow("Now Playing Card", cfg.screensaver.nowPlayingCard, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(nowPlayingCard = v)) } },
+        help = "A small glass card with the cover and track floats over the screen saver while music plays.")
+    MenuRow("Preview Now Playing", { AerialActivity.start(context, nowPlaying = true) },
+        help = "The full-screen Now Playing screen saver: pick Now Playing as the current selection to use it.")
 }
 
 @Composable
