@@ -1004,7 +1004,7 @@ private fun ChooseAsciiPage(model: HomeModel, cfg: LauncherConfig, active: Boole
                 MenuRow(
                     c.name, { category = c.id },
                     (if (i == 0) Modifier.focusRequester(first) else Modifier).onFocusChanged { if (it.isFocused) category = c.id },
-                    value = if (category == c.id) "✓" else c.pieces.toString(),
+                    value = if (category == c.id) "✓  ${c.pieces}" else c.pieces.toString(),
                 )
             }
         }
@@ -1059,7 +1059,8 @@ private fun AsciiThumbTile(p: dev.glasslauncher.dream.AsciiEntry, chosen: Boolea
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black), contentAlignment = Alignment.Center) {
                 val pic = picture
                 if (pic != null) Image(pic, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, filterQuality = androidx.compose.ui.graphics.FilterQuality.None, modifier = Modifier.fillMaxSize())
-                else Text(p.name, style = dev.glasslauncher.ui.Type.caption, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(8.dp), maxLines = 3)
+                // Until the still is there the tile only hints at what it will be; the name is the caption under it, once.
+                else Text("ASCII", style = dev.glasslauncher.ui.Type.caption, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.35f))
             }
         }
         Text(

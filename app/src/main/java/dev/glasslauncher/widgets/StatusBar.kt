@@ -321,7 +321,7 @@ fun rememberDate(): String {
 private const val DATE_PATTERN = "EEE, MMM d"
 
 // AM/PM as "AM"/"PM" whatever the locale's markers are (en_CA writes "p.m.").
-private fun format(pattern: String) = SimpleDateFormat(pattern, Locale.getDefault()).apply {
+internal fun format(pattern: String) = SimpleDateFormat(pattern, Locale.getDefault()).apply {
     dateFormatSymbols = dateFormatSymbols.apply { amPmStrings = arrayOf("AM", "PM") }
 }.format(Date(WallClock.now()))
 

@@ -80,16 +80,14 @@ internal fun defaultSpectrum(context: Context, cfg: ScreensaverConfig): Spectrum
  * The time of day, as a TextView that ticks once a minute only while it is shown (a TextClock would also do that, but it reads the system
  * clock, which a screenshot test cannot pin; this one reads the app's WallClock like the pill does).
  */
-internal class ClockText(context: Context, private val pattern12: String, private val pattern24: String) : TextView(context) {
+internal class ClockText(context: Context, private val pattern12: String, private val pattern24: String, private val h24: Boolean) : TextView(context) {
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() { refresh(); handler.postDelayed(this, 60_000 - dev.glasslauncher.widgets.WallClock.now() % 60_000 + 50) }
     }
 
-    fun refresh() {
-        val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) pattern24 else pattern12
-        text = java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault()).format(java.util.Date(dev.glasslauncher.widgets.WallClock.now()))
-    }
+    /** Formatted by the status pill's own formatter and the user's 12 or 24-hour setting: "PM", not the locale's "p.m.". */
+    fun refresh() { text = dev.glasslauncher.widgets.format(if (h24) pattern24 else pattern12) }
 
     /** Shown (and ticking) or gone (and silent). */
     fun shown(on: Boolean) {
@@ -113,7 +111,7 @@ private fun softShadow(): Bitmap = Bitmap.createBitmap(160, 160, Bitmap.Config.A
         color = Color.BLACK; maskFilter = android.graphics.BlurMaskFilter(26f, android.graphics.BlurMaskFilter.Blur.NORMAL)
     }
     // Twice: a blurred box is thin at its edges, and the lift should be felt, not just measured.
-    repeat(2) { c.drawRect(52f, 52f, 108f, 108f, p) }
+    repeat(3) { c.drawRect(52f, 52f, 108f, 108f, p) }
 }
 
 /** A thin progress line: two rounded bars, drawn only when the fraction changes. */
@@ -211,7 +209,7 @@ class NowPlayingCardView(context: Context) : FrameLayout(context), Saver {
  * from the cover itself (a tiny copy, scaled up smoothly, dimmed). Paused music stays up, dimmer; with nothing playing it is a quiet clock.
  * It redraws on a track change and once a second for the progress line while playing, and not otherwise.
  */
-class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, private val spectrum: SpectrumSource? = defaultSpectrum(context, cfg)) : FrameLayout(context), Saver {
+class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, private val spectrum: SpectrumSource? = defaultSpectrum(context, cfg), private val h24: Boolean = false) : FrameLayout(context), Saver {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val handler = Handler(Looper.getMainLooper())
     private val backdrop = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
@@ -224,6 +222,9 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         val spread = context.dp(54f).toInt()
         addView(shadow, FrameLayout.LayoutParams(context.dp(300f).toInt() + 2 * spread, context.dp(300f).toInt() + 2 * spread).apply { setMargins(-spread, -spread + context.dp(40f).toInt(), -spread, -spread) })
         addView(art, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // A thin light edge: on a dark backdrop a shadow alone is hard to see, and the rim says the cover has an edge standing off the screen.
+        addView(View(context).apply { background = GradientDrawable().apply { setColor(Color.TRANSPARENT); setStroke(context.dp(1.2f).toInt().coerceAtLeast(1), Color.argb(70, 255, 255, 255)) } },
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
     private val elapsed = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.END; typeface = android.graphics.Typeface.MONOSPACE }
     private val remaining = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.START; typeface = android.graphics.Typeface.MONOSPACE }
@@ -247,8 +248,8 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         }, LinearLayout.LayoutParams(context.dp(560f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(22f).toInt() })
     }
     /** The time of day, small, in a corner while a track is up (the big clock takes over when nothing plays). */
-    private val cornerClock = ClockText(context, "h:mm a", "H:mm").apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); visibility = GONE }
-    private val clock = ClockText(context, "h:mm", "H:mm").apply { setTextColor(Color.argb(150, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 64f); gravity = Gravity.CENTER; visibility = GONE }
+    private val cornerClock = ClockText(context, "h:mm a", "HH:mm", h24).apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); visibility = GONE }
+    private val clock = ClockText(context, "h:mm", "HH:mm", h24).apply { setTextColor(Color.argb(150, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 64f); gravity = Gravity.CENTER; visibility = GONE }
     private var np: NowPlaying? = null
     private var shownKey: String? = null
     private var shownArt: Bitmap? = null

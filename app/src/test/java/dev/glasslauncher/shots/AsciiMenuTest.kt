@@ -56,6 +56,14 @@ class AsciiMenuTest {
         )
     }
 
+    /** Yin's stick check: a catalogue cached before the stills existed has no preview zip anywhere, and was never refreshed. */
+    @Test fun aCatalogueCachedBeforeStillsIsFlaggedForARefresh() {
+        val dir = File(ApplicationProvider.getApplicationContext<Context>().filesDir, "ascii").also { it.mkdirs() }
+        File(dir, "index.json").writeText("""{"v":1,"categories":[{"id":"cosmos","name":"Cosmos","pieces":1}],"pieces":[{"slug":"orbit-window","name":"Orbit Window","category":"cosmos","cols":8,"rows":3,"fps":24,"frames":9,"bytes":1,"sha256":"x","zip":"c.zip"}]}""")
+        val cached = dev.glasslauncher.dream.AsciiPacks.cachedIndex(ApplicationProvider.getApplicationContext())!!
+        assertTrue("no still anywhere: ensurePreviews must fetch the catalogue again", cached.categories.none { it.previewZip != null })
+    }
+
     @Test fun theMenuIsCategoriesOnTheLeftAndStillsOnTheRight() {
         TvHarness.setUp()
         cacheIndex()

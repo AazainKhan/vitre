@@ -17,7 +17,7 @@ internal fun saverView(context: Context, slideshow: Boolean, nearEndMs: Long = 0
     // Reduce Motion: the slideshow cross-fades without its slow pan and zoom.
     val reduceMotion = dev.glasslauncher.ui.UiPrefs.resolve(context, full).reduceMotion
     val cfg = full.screensaver.let { if (reduceMotion) it.copy(kenBurns = false) else it }
-    if (nowPlaying) return NowPlayingSaverView(context, cfg)
+    if (nowPlaying) return NowPlayingSaverView(context, cfg, h24 = full.clock24h)
     val base = if (asciiSlug != null) AsciiView(context, cfg.copy(asciiPiece = asciiSlug)) else if (ascii) AsciiView(context, cfg) else if (slideshow) SlideshowView(context, cfg) else AerialView(context, cfg, nearEndMs)
     // The glass Now Playing card over any other screensaver, if it is on.
     return if (cfg.nowPlayingCard) CardOverSaver(context, base, NowPlayingCardView(context)) else base

@@ -85,7 +85,9 @@ object AsciiPacks {
      * the menu shows names instead.
      */
     suspend fun ensurePreviews(context: Context, category: String): Unit = withContext(Dispatchers.IO) {
-        val index = cachedIndex(context) ?: return@withContext
+        var index = cachedIndex(context) ?: return@withContext
+        // A catalogue cached before the stills existed has no still anywhere: fetch the current one once, or those installs would show names for good.
+        if (index.categories.none { it.previewZip != null }) index = index(context, refresh = true) ?: return@withContext
         val cat = index.categories.firstOrNull { it.id == category } ?: return@withContext
         val want = index.pieces.filter { it.category == category && it.previewSha256 != null }.associateBy { it.slug }
         val zip = cat.previewZip ?: return@withContext

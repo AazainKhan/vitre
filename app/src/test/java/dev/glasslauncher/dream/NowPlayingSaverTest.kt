@@ -121,6 +121,22 @@ class NowPlayingSaverTest {
         saver.stop()
     }
 
+    /** Yin's stick check: the saver said "p.m." where the pill says "PM" (en_CA), and ignored the 24-hour setting. */
+    @Test fun theClockReadsLikeThePillEvenInALocaleThatWritesPeriods() {
+        dev.glasslauncher.shots.TvHarness.pinClockForTest()
+        val before = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.CANADA)
+        try {
+            NowPlayingFixture.state = MutableStateFlow<NowPlaying?>(np(playing = false))
+            val twelve = NowPlayingSaverView(context, ScreensaverConfig()); twelve.start(); settle()
+            assertTrue("12-hour, AM in capitals (${texts(twelve)})", texts(twelve).contains("9:41 AM"))
+            twelve.stop()
+            val twentyFour = NowPlayingSaverView(context, ScreensaverConfig(), h24 = true); twentyFour.start(); settle()
+            assertTrue("24-hour follows the setting (${texts(twentyFour)})", texts(twentyFour).contains("09:41"))
+            twentyFour.stop()
+        } finally { java.util.Locale.setDefault(before) }
+    }
+
     @Test fun clockFacesRead() {
         assertEquals("1:23", formatClock(83_000)); assertEquals("0:05", formatClock(5_000)); assertEquals("1:02:03", formatClock(3_723_000)); assertEquals("0:00", formatClock(-5))
     }
