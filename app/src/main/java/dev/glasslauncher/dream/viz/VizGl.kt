@@ -160,6 +160,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0); GLES20.glViewport(0, 0, W, H)
                 GLES20.glUseProgram(blit)
                 GLES20.glUniform3f(GLES20.glGetUniformLocation(blit, "uTint"), tn[0], tn[1], tn[2])
+                GLES20.glUniform1f(GLES20.glGetUniformLocation(blit, "uVivid"), if (style == VisualizerStyle.Warp) 1f else 0f)
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[next])
                 GLES20.glUniform1i(GLES20.glGetUniformLocation(blit, "uPrev"), 1)
                 quad(blit)

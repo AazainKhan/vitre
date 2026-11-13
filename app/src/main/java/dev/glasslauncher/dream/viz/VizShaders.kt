@@ -45,11 +45,11 @@ internal object VizShaders {
             return texture2D(uPrev, abs(mod(uv + 1.0, 2.0) - 1.0)).rgb;
         }
         // What every feedback frame does to the last picture: fade it towards black, let its hue creep, keep it saturated.
-        vec3 settle(vec3 c, float k) {
+        vec3 settle(vec3 c, float k, float sat) {
             c = max(c * k - 0.006, 0.0);
-            c = mix(c, c.gbr, 0.015);
+            c = mix(c, c.gbr, 0.012);
             float l = dot(c, vec3(0.333));
-            return max(mix(vec3(l), c, 1.04), 0.0);
+            return max(mix(vec3(l), c, sat), 0.0);
         }
         // Brightness past 1 is scaled down with the hue kept, not clipped channel by channel (which turns every hot spot white).
         vec3 fit(vec3 c) { return c / max(1.0, max(c.r, max(c.g, c.b))); }
@@ -65,8 +65,8 @@ internal object VizShaders {
     const val SPECTRUM = HEAD + """
         void main() {
             vec2 p = centred(vUv);
-            vec2 q = vec2(p.x, p.y * (0.962 - 0.035 * uKick)) + swirl(p, 0.0035);
-            vec3 col = settle(prevAt(q), 0.935);
+            vec2 q = vec2(p.x, p.y * (0.962 - 0.035 * uKick)) + 0.0035 * vec2(sin(p.y * 7.0 + uFlow * 0.9), cos(p.x * 6.0 - uFlow * 0.7));
+            vec3 col = settle(prevAt(q), 0.935, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
             const float N = 64.0;
             float cell = floor(vUv.x * N);
@@ -77,12 +77,12 @@ internal object VizShaders {
             float h = 0.04 + lv * 0.96;
             float gap = smoothstep(0.0, 0.14, fx) * smoothstep(1.0, 0.86, fx);
             float body = step(dy, h) * gap;
-            vec3 c = pal(x * 0.9 + uFlow * FP * 2.0 + lv * 0.25);
+            vec3 c = hue(x * 0.9 + uFlow * FP * 2.0 + lv * 0.25);
             add += c * body * (0.35 + 0.65 * (1.0 - dy / max(h, 0.001))) * (0.7 + 0.5 * uKick);
             add += c * exp(-abs(dy - h) * 14.0) * gap * 0.45;
             float pk = 0.04 + peak(x) * 0.96;
             add += vec3(1.0) * step(abs(dy - pk), 0.012) * gap * 0.8;
-            add += pal(uFlow * FP) * 0.05 * (0.4 + uKick) * (1.0 - dy * 0.4);
+            add += hue(uFlow * FP) * 0.05 * (0.4 + uKick) * (1.0 - dy * 0.4);
             gl_FragColor = vec4(fit(col + add * 0.22), 1.0);
         }
     """
@@ -92,7 +92,7 @@ internal object VizShaders {
         void main() {
             vec2 p = centred(vUv);
             vec2 q = rot(0.014 + uKick * 0.02) * p * (1.032 + uKick * 0.045) + swirl(p, 0.005);
-            vec3 col = settle(prevAt(q), 0.915);
+            vec3 col = settle(prevAt(q), 0.915, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
             float e = min(0.5 - abs(p.y), 0.8889 - abs(p.x));         // how far inside the border
             float ang = atan(p.y, p.x) / 6.28318 + 0.5;
@@ -112,7 +112,7 @@ internal object VizShaders {
         void main() {
             vec2 p = centred(vUv);
             vec2 q = rot(0.006 + (uMid - 0.2) * 0.02) * p * (0.985 - uKick * 0.025) + swirl(p, 0.006);
-            vec3 col = settle(prevAt(q), 0.925);
+            vec3 col = settle(prevAt(q), 0.925, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
             vec2 r = rot(uSpin * 0.4) * p;
             for (int i = 0; i < 4; i++) {
@@ -172,7 +172,7 @@ internal object VizShaders {
         void main() {
             vec2 p = centred(vUv);
             vec2 q = rot(0.012 + uBeat * 0.01) * p * (0.972 - uKick * 0.03) + swirl(p, 0.004);
-            vec3 col = settle(prevAt(q), 0.925);
+            vec3 col = settle(prevAt(q), 0.925, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
             float r = length(p);
             float a = atan(p.y, p.x) / 6.28318 + 0.5;
@@ -203,19 +203,19 @@ internal object VizShaders {
             vec2 q = r * vec2(cos(a), sin(a));
             q *= 0.968 - uKick * 0.035;
             q = rot(0.012 + (uMid - 0.3) * 0.03) * q + swirl(p, 0.004);
-            vec3 col = settle(prevAt(q), 0.935);
+            vec3 col = settle(prevAt(q), 0.88, 1.12);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
             float ring = 0.46 + uKick * 0.12 + wave(fract(a0 / 6.28318 + 0.5)) * 0.10;
             float d = abs(r - ring);
-            vec3 ink = pal(uFlow * FP * 2.0 + a0 * 0.159);
+            vec3 ink = hue(uFlow * FP * 2.0 + a0 * 0.318 + r * 1.2);
             float room = 1.0 - max(col.r, max(col.g, col.b));
             add += ink * exp(-d * 50.0) * (0.7 + 1.3 * uBeat) * (0.4 + room);
             float ra = a / seg;
-            add += pal(ra * 0.9 + uFlow * FP) * spec(ra * 0.7 + r * 0.25) * smoothstep(0.1, 0.9, r) * 0.22 * (0.3 + room);
+            add += hue(ra * 0.9 + r * 1.6 + uFlow * FP) * spec(ra * 0.7 + r * 0.25) * smoothstep(0.05, 0.7, r) * 0.55 * (0.4 + room);
             float d2 = abs(r - (0.16 + uKick * 0.10));
-            add += pal(uFlow * FP * 3.0 + 0.5) * exp(-d2 * 55.0) * 0.5 * (0.4 + room);
-            add += pal(uFlow * FP * 2.0 + 0.2) * exp(-r * 9.0) * (0.04 + 0.5 * uKick);   // a core that flares on the bass, so the middle is never a hole
-            gl_FragColor = vec4(fit(col + add * 0.30), 1.0);
+            add += hue(uFlow * FP * 3.0 + 0.5 + a0 * 0.159) * exp(-d2 * 40.0) * 0.9 * (0.4 + room);
+            add += hue(uFlow * FP * 2.0 + 0.2) * exp(-r * 7.0) * (0.10 + 0.8 * uKick);   // a core that flares on the bass, so the middle is never a hole
+            gl_FragColor = vec4(fit(col + add * 0.34), 1.0);
         }
     """
 
@@ -225,6 +225,12 @@ internal object VizShaders {
         varying vec2 vUv;
         uniform sampler2D uPrev;
         uniform vec3 uTint;
-        void main() { gl_FragColor = vec4(texture2D(uPrev, vUv).rgb + uTint * 0.04 * (1.0 - 0.85 * length(vUv - 0.5)), 1.0); }
+        uniform float uVivid;   // 0 as drawn; 1 lifts saturation and mid-tones (Warp, whose folds blend colours towards mud)
+        void main() {
+            vec3 c = texture2D(uPrev, vUv).rgb;
+            float l = dot(c, vec3(0.333));
+            c = pow(max(mix(vec3(l), c, 1.0 + 0.7 * uVivid), 0.0), vec3(1.0 - 0.22 * uVivid));
+            gl_FragColor = vec4(c + uTint * 0.04 * (1.0 - 0.85 * length(vUv - 0.5)), 1.0);
+        }
     """
 }
