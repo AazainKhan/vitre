@@ -25,6 +25,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.layout.onSizeChanged
@@ -117,7 +119,6 @@ private sealed interface Page {
     data object ChoosePhotos : Page
     /** The baked ASCII screensaver pieces (P327): the categories, then a category's pieces. */
     data object AsciiPrefs : Page
-    data class AsciiCategory(val id: String, val name: String) : Page
     data object Widgets : Page
     data object HomeButton : Page
     data object Updates : Page
@@ -222,6 +223,8 @@ fun SettingsPanel(
             dev.glasslauncher.home.DevicePage(page.kind, page.name, cfg, { model.edit(it) }, pageActive) { id -> push(Page.ButtonApp(id)) }
         } else if (page == Page.ChooseAerials) androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.home.LocalPageKey provides page) {
             ChooseAerialsPage(model, cfg, pageActive)
+        } else if (page == Page.AsciiPrefs) androidx.compose.runtime.CompositionLocalProvider(dev.glasslauncher.home.LocalPageKey provides page) {
+            ChooseAsciiPage(model, cfg, pageActive)
         } else androidx.compose.runtime.CompositionLocalProvider(
             dev.glasslauncher.home.LocalPageKey provides page,
             dev.glasslauncher.home.LocalConfirm provides { c -> open(c) },
@@ -243,8 +246,7 @@ fun SettingsPanel(
                 Page.AerialsPrefs -> AerialsPrefsPage(model, cfg, f, ::push)
                 Page.SlideshowPrefs -> SlideshowPrefsPage(model, cfg, f, ::push)
                 Page.ChoosePhotos -> ChoosePhotosPage(model, cfg, f)
-                Page.AsciiPrefs -> AsciiPrefsPage(model, cfg, f, ::push)
-                is Page.AsciiCategory -> AsciiCategoryPage(model, cfg, page, f)
+                Page.AsciiPrefs -> Unit
                 Page.ChooseAerials -> Unit
                 Page.Widgets -> WidgetsPage(model, cfg, f, open)
                 Page.HomeButton -> HomeButtonPage(model, cfg, f)
@@ -739,9 +741,9 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     SectionLabel("Screen Saver Preferences")
     MenuRow("Aerials", { push(Page.AerialsPrefs) }, chevron = true)
     MenuRow("Slideshow", { push(Page.SlideshowPrefs) }, chevron = true)
-    MenuRow("ASCII Art", { push(Page.AsciiPrefs) }, chevron = true, value = cfg.screensaver.asciiPiece)
-    ToggleRow("Now Playing Card", cfg.screensaver.nowPlayingCard, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(nowPlayingCard = v)) } },
-        help = "A small glass card with the cover and track floats over the screen saver while music plays.")
+    MenuRow("ASCII Art", { push(Page.AsciiPrefs) }, chevron = true)
+    ToggleRow("Now Playing Card Over Screen Savers", cfg.screensaver.nowPlayingCard, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(nowPlayingCard = v)) } },
+        help = "While music plays, shows a small glass card with the cover and track over the other screen savers (Aerials, Slideshow and ASCII Art). It is not part of the full-screen Now Playing screen saver.")
     val audioGranted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
     val askAudio = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) model.edit { it.copy(screensaver = it.screensaver.copy(visualizer = true)) }
@@ -960,50 +962,110 @@ private fun ColumnScope.SlideshowPrefsPage(model: HomeModel, cfg: LauncherConfig
 }
 
 /**
- * The ASCII catalogue: fetched once (then cached), as categories. The first row is always there (it plays the chosen piece), so focus
- * has a row to land on while the catalogue loads; without the network the first time, a row says so.
+ * ASCII Art, laid out like Choose Aerials: the categories down the left, the focused category's pieces as a grid of stills on the right.
+ * Select picks a piece and plays it (any key stops the preview); "Play Selected" replays the chosen one. The catalogue is fetched once and
+ * cached; a category's stills come as one small zip when it is first looked at, and until then (or without the network) tiles show names.
  */
 @Composable
-private fun ColumnScope.AsciiPrefsPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+private fun ChooseAsciiPage(model: HomeModel, cfg: LauncherConfig, active: Boolean) {
     val context = LocalContext.current
+    val palette = dev.glasslauncher.ui.LocalPalette.current
+    val sink = dev.glasslauncher.home.LocalTitleSink.current
+    val pageKey = dev.glasslauncher.home.LocalPageKey.current
+    androidx.compose.runtime.DisposableEffect(sink, pageKey) {
+        sink?.wide = pageKey
+        onDispose { if (sink != null && sink.wide == pageKey) sink.wide = null }
+    }
+    PanelTitle("ASCII Art")
     var tries by remember { mutableStateOf(0) }
     var failed by remember { mutableStateOf(false) }
     val index by androidx.compose.runtime.produceState<dev.glasslauncher.dream.AsciiIndex?>(dev.glasslauncher.dream.AsciiPacks.cachedIndex(context), tries) {
         failed = false
         value = dev.glasslauncher.dream.AsciiPacks.index(context, refresh = tries > 0 && value == null).also { failed = it == null }
     }
-    PanelTitle("ASCII Art")
-    val chosen = cfg.screensaver.asciiPiece
-    val chosenName = chosen?.let { slug -> index?.pieces?.firstOrNull { it.slug == slug }?.name ?: slug }
-    MenuRow("Play Selected", { chosen?.let { AerialActivity.start(context, asciiSlug = it) } }, f, enabled = chosen != null, value = chosenName ?: "None",
-        help = "Pick a piece below, then it plays as the screen saver when ASCII Art is the current selection.")
     val idx = index
-    if (idx == null) {
-        if (failed) MenuRow("Try Again", { tries++ }, help = "Couldn't reach VITRE's release page. The pieces are fetched once, then kept on this TV.")
-        else MenuRow("Loading…", {}, enabled = false)
-        return
-    }
-    SectionLabel("Categories")
-    idx.categories.filter { it.pieces > 0 }.forEach { c ->
-        MenuRow(c.name, { push(Page.AsciiCategory(c.id, c.name)) }, value = "${c.pieces}", chevron = true, help = c.blurb.ifBlank { null })
+    val categories = idx?.categories.orEmpty().filter { it.pieces > 0 }
+    var category by remember(categories.size) { mutableStateOf(categories.firstOrNull()?.id) }
+    val chosen = cfg.screensaver.asciiPiece
+    val first = remember { FocusRequester() }
+    LaunchedEffect(active) { if (active) { delay(16); runCatching { first.requestFocus() } } }
+    // The focused category's stills, fetched as it is looked at (a moment after, so scrolling the list does not fetch each one it passes).
+    var stills by remember { mutableStateOf(0) }
+    LaunchedEffect(category) { category?.let { delay(250); dev.glasslauncher.dream.AsciiPacks.ensurePreviews(context, it); stills++ } }
+    val pieces = idx?.pieces?.filter { it.category == category }.orEmpty()
+
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.width(220.dp).padding(top = 44.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            if (idx == null) {
+                if (failed) MenuRow("Try Again", { tries++ }, Modifier.focusRequester(first), help = "Couldn't reach VITRE's release page. The pieces are fetched once, then kept on this TV.")
+                else MenuRow("Loading…", {}, Modifier.focusRequester(first), enabled = false)
+            }
+            categories.forEachIndexed { i, c ->
+                MenuRow(
+                    c.name, { category = c.id },
+                    (if (i == 0) Modifier.focusRequester(first) else Modifier).onFocusChanged { if (it.isFocused) category = c.id },
+                    value = if (category == c.id) "✓" else c.pieces.toString(),
+                )
+            }
+        }
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            Row(Modifier.fillMaxWidth().padding(end = 12.dp), horizontalArrangement = Arrangement.End) {
+                Box(Modifier.width(190.dp)) {
+                    MenuRow("Play Selected", { chosen?.let { dev.glasslauncher.dream.AerialActivity.start(context, asciiSlug = it) } }, enabled = chosen != null,
+                        help = "Plays the piece you picked. Pick Ascii Art as the current selection to use it as the screen saver.")
+                }
+            }
+            androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 30.dp, end = 18.dp, top = 6.dp, bottom = 44.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize().testTag("ascii-grid"),
+            ) {
+                items(pieces.size, key = { pieces[it].slug }) { i ->
+                    val p = pieces[i]
+                    AsciiThumbTile(p, p.slug == chosen, stills) {
+                        model.edit { it.copy(screensaverMode = dev.glasslauncher.data.ScreensaverMode.Ascii, screensaver = it.screensaver.copy(asciiPiece = p.slug)) }
+                        dev.glasslauncher.dream.AerialActivity.start(context, asciiSlug = p.slug)
+                    }
+                }
+            }
+        }
     }
 }
 
-/** One category's pieces. Select picks the piece for the screensaver and plays it; any key stops the preview. */
+/** One piece as a thumbnail of its still (its name until the still is there), with a tick on the chosen one. */
 @Composable
-private fun ColumnScope.AsciiCategoryPage(model: HomeModel, cfg: LauncherConfig, page: Page.AsciiCategory, f: Modifier) {
+private fun AsciiThumbTile(p: dev.glasslauncher.dream.AsciiEntry, chosen: Boolean, stills: Int, onClick: () -> Unit) {
     val context = LocalContext.current
-    // Read at once, not fetched: this page opens from the categories, which already cached it, and its first row must exist for focus to land on.
-    val index = remember { dev.glasslauncher.dream.AsciiPacks.cachedIndex(context) }
-    PanelTitle(page.name)
-    val pieces = index?.pieces?.filter { it.category == page.id }.orEmpty()
-    if (pieces.isEmpty()) MenuRow("Nothing here yet", {}, f, enabled = false)
-    pieces.forEachIndexed { i, p ->
-        MenuRow(p.name, {
-            model.edit { it.copy(screensaverMode = dev.glasslauncher.data.ScreensaverMode.Ascii, screensaver = it.screensaver.copy(asciiPiece = p.slug)) }
-            AerialActivity.start(context, asciiSlug = p.slug)
-        }, if (i == 0) f else Modifier, value = if (cfg.screensaver.asciiPiece == p.slug) "✓" else null,
-            help = p.note.ifBlank { "${p.cols} by ${p.rows} cells, ${p.fps} frames a second." })
+    val palette = dev.glasslauncher.ui.LocalPalette.current
+    val picture by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, p.slug, stills) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { dev.glasslauncher.dream.AsciiPacks.previewBitmap(context, p.slug)?.asImageBitmap() }
+    }
+    val bring = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val below = with(androidx.compose.ui.platform.LocalDensity.current) { AERIALS_BRING_BELOW.toPx() }
+    val above = with(androidx.compose.ui.platform.LocalDensity.current) { AERIALS_BRING_ABOVE.toPx() }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.onSizeChanged { size = it }.bringIntoViewRequester(bring)) {
+        dev.glasslauncher.ui.FocusTile(
+            label = if (chosen) "${p.name}, selected" else p.name,
+            onClick = onClick,
+            focusedScale = 1.1f,
+            onFocusChange = { if (it) scope.launch { bring.bringIntoView(androidx.compose.ui.geometry.Rect(0f, -above, size.width.toFloat(), size.height + below)) } },
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).testTag("ascii:${p.slug}"),
+        ) {
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black), contentAlignment = Alignment.Center) {
+                val pic = picture
+                if (pic != null) Image(pic, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, filterQuality = androidx.compose.ui.graphics.FilterQuality.None, modifier = Modifier.fillMaxSize())
+                else Text(p.name, style = dev.glasslauncher.ui.Type.caption, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(8.dp), maxLines = 3)
+            }
+        }
+        Text(
+            (if (chosen) "✓ " else "") + p.name, style = dev.glasslauncher.ui.Type.caption, color = if (chosen) palette.primary else palette.secondary, maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 

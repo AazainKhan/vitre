@@ -11,7 +11,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 
-@Serializable class AsciiCategory(val id: String, val name: String, val blurb: String = "", val pieces: Int = 0, val zipBytes: Long = 0)
+@Serializable class AsciiCategory(val id: String, val name: String, val blurb: String = "", val pieces: Int = 0, val zipBytes: Long = 0, val previewZip: String? = null)
 
 @Serializable
 class AsciiEntry(
@@ -19,6 +19,7 @@ class AsciiEntry(
     val frames: Int, val loop: String = "dissolve", val cell: String = "text", val bytes: Int, val sha256: String, val zip: String,
     val tags: List<String> = emptyList(),
     val note: String = "",
+    val previewSha256: String? = null,
 )
 
 @Serializable class AsciiIndex(val v: Int, val categories: List<AsciiCategory>, val pieces: List<AsciiEntry>)
@@ -74,6 +75,42 @@ object AsciiPacks {
         val entry = index(context)?.pieces?.firstOrNull { it.slug == slug } ?: return@withContext null
         fetchCategory(context, entry.zip)
         cached()
+    }
+
+    private fun previewFile(context: Context, slug: String) = File(File(dir(context), "preview").also { it.mkdirs() }, "$slug.asc")
+
+    /**
+     * The still of every piece in [category], for the menu's thumbnails: fetched as one small zip the first time the category is looked at
+     * (about 60 KB; the biggest 340 KB), each still checked against the index. Without the network, or a catalogue that predates stills,
+     * the menu shows names instead.
+     */
+    suspend fun ensurePreviews(context: Context, category: String): Unit = withContext(Dispatchers.IO) {
+        val index = cachedIndex(context) ?: return@withContext
+        val cat = index.categories.firstOrNull { it.id == category } ?: return@withContext
+        val want = index.pieces.filter { it.category == category && it.previewSha256 != null }.associateBy { it.slug }
+        val zip = cat.previewZip ?: return@withContext
+        if (want.isEmpty() || want.keys.all { previewFile(context, it).exists() } || !name.matches(zip.removeSuffix(".zip"))) return@withContext
+        val bytes = get("$BASE/$zip", MAX_ZIP) ?: return@withContext
+        ZipInputStream(bytes.inputStream()).use { zin ->
+            var n = 0
+            while (n++ < 2000) {
+                val e = zin.nextEntry ?: break
+                val entry = want[e.name.removeSuffix(".asc")]
+                if (e.isDirectory || !e.name.endsWith(".asc") || entry == null) continue
+                val data = readEntry(zin) ?: continue
+                if (sha256(data) != entry.previewSha256) continue
+                val tmp = File(previewFile(context, entry.slug).path + ".tmp")
+                tmp.writeBytes(data)
+                tmp.renameTo(previewFile(context, entry.slug))
+            }
+        }
+    }
+
+    /** The still of [slug] as a picture that fits [width] by [height], or null if it has not been fetched. */
+    fun previewBitmap(context: Context, slug: String, width: Int = 384, height: Int = 216): android.graphics.Bitmap? {
+        if (!name.matches(slug)) return null
+        val piece = runCatching { AsciiPiece.parse(previewFile(context, slug).readBytes()) }.getOrNull() ?: return null
+        return AsciiThumb.render(piece, width, height)
     }
 
     private fun fetchCategory(context: Context, zip: String) {

@@ -78,6 +78,9 @@ object TvHarness {
         dev.glasslauncher.widgets.WallClock.now = { at }
     }
 
+    /** For tests outside the harness's setUp that need the pinned clock (the screensaver views). */
+    fun pinClockForTest() = pinClock()
+
     internal fun restoreClock() {
         savedZone?.let { java.util.TimeZone.setDefault(it) }
         savedNow?.let { dev.glasslauncher.widgets.WallClock.now = it }

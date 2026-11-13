@@ -9,6 +9,9 @@
  * loop point has no jump. Output per piece: <slug>.asc, a header (JSON) and the frames (cell planes, each frame XOR the one before,
  * deflated as one raw stream so a device can inflate it a frame at a time; v2 adds the closing delta back to frame 0). Then: one <category>.zip per category, index.json,
  * categories.json, and the licence files. Nothing is fetched; the checkout is read from disk.
+ *
+ *   node scripts/ascii-bake.mjs <checkout> <out dir> --previews   after baking: one still frame per piece (a one-frame pack, taken a third
+ *                                                                 of the way through its loop), zipped per category for the menu's thumbnails
  */
 import fs from "fs";
 import path from "path";
@@ -118,6 +121,53 @@ if (files.length) fs.writeFileSync(path.join(out, `index.part-${shard[0]}.json`)
 
 // With one shard (or after the last, by hand: scripts/ascii-bake.mjs <checkout> <out> --pack) the parts are joined and zipped.
 if (shard[1] === 1 || args.includes("--pack")) pack();
+if (args.includes("--previews")) previews();
+
+/** Decodes a baked .asc: its header and its frames' cell planes (each frame whole, rebuilt from the deltas). */
+function readAsc(file) {
+  const b = fs.readFileSync(file);
+  const head = JSON.parse(b.subarray(8, 8 + b.readUInt32BE(4)).toString("utf8"));
+  const raw = zlib.inflateRawSync(b.subarray(8 + b.readUInt32BE(4)));
+  const size = 3 * head.cols * head.rows;
+  const frames = [];
+  let cur = Buffer.alloc(size);
+  for (let k = 0; k < head.n; k++) {
+    const chunk = raw.subarray(k * size, (k + 1) * size);
+    cur = Buffer.from(cur.map((v, i) => v ^ chunk[i]));
+    frames.push(cur);
+  }
+  return { head, frames };
+}
+
+/** One-frame packs (the piece a third of the way through), zipped per category, and the index told where they are. */
+export function previews() {
+  const indexFile = path.join(out, "vitre-ascii-index.json");
+  const index = JSON.parse(fs.readFileSync(indexFile, "utf8"));
+  fs.mkdirSync(path.join(out, "preview"), { recursive: true });
+  for (const p of index.pieces) {
+    const { head, frames } = readAsc(path.join(out, "asc", p.slug + ".asc"));
+    const still = frames[Math.floor(head.n / 3)];
+    const stream = Buffer.concat([still, Buffer.alloc(still.length)]);   // the frame, then the (empty) closing delta
+    const h = Buffer.from(JSON.stringify({ ...head, n: 1, loop: "still" }));
+    const len = Buffer.alloc(4); len.writeUInt32BE(h.length);
+    const asc = Buffer.concat([Buffer.from("ASC1"), len, h, zlib.deflateRawSync(stream, { level: 9 })]);
+    fs.writeFileSync(path.join(out, "preview", p.slug + ".asc"), asc);
+    p.previewBytes = asc.length;
+    p.previewSha256 = crypto.createHash("sha256").update(asc).digest("hex");
+  }
+  for (const c of index.categories) {
+    const members = index.pieces.filter((p) => p.category === c.id);
+    if (!members.length) continue;
+    const name = `vitre-ascii-preview-${c.id}.zip`;
+    const zip = path.join(path.resolve(out), name);
+    fs.rmSync(zip, { force: true });
+    execFileSync("zip", ["-q", "-j", "-X", zip, ...members.map((p) => path.join(out, "preview", p.slug + ".asc"))]);
+    c.previewZip = name;
+    c.previewZipBytes = fs.statSync(zip).size;
+  }
+  fs.writeFileSync(indexFile, JSON.stringify(index));
+  console.log(`previews for ${index.pieces.length} pieces: ${index.categories.reduce((n, c) => n + (c.previewZipBytes ?? 0), 0)} bytes in zips`);
+}
 export function pack() {
   // The index is built from the baked files themselves (their headers), so it can be rebuilt without baking again.
   const index = fs.readdirSync(path.join(out, "asc")).filter((f) => f.endsWith(".asc")).map((f) => {

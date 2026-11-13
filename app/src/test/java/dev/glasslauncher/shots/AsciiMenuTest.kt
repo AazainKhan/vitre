@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.glasslauncher.MainActivity
+import dev.glasslauncher.dream.AsciiTestPacks
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -33,22 +34,29 @@ class AsciiMenuTest {
         return compose.focused()?.contains(text) == true
     }
 
-    /** A catalogue already on disk (what the first successful fetch leaves), so the menu needs no network. */
+    /** A catalogue already on disk (what the first successful fetch leaves), with a still for each piece, so the menu needs no network. */
     private fun cacheIndex() {
         val dir = File(ApplicationProvider.getApplicationContext<Context>().filesDir, "ascii").also { it.mkdirs() }
-        fun piece(slug: String, name: String, cat: String) =
-            """{"slug":"$slug","name":"$name","category":"$cat","cols":96,"rows":32,"fps":24,"frames":288,"bytes":1000,"sha256":"x","zip":"$cat.zip","note":"A rainy neon street at night, with passing umbrellas."}"""
+        val colours = listOf("#ef4444", "#22c55e", "#3b82f6", "#eab308", "#a855f7", "#14b8a6")
+        fun still(slug: String, n: Int) {
+            val text = (0 until 24).joinToString("") { i -> "\u2588\u2593\u2592\u2591  ".let { r -> r[(i + n) % r.length].toString() } }
+            val head = """{"v":2,"slug":"$slug","cols":8,"rows":3,"fps":10,"n":1,"loop":"still","palette":["${colours[n % colours.size]}","${colours[(n + 2) % colours.size]}"]}"""
+            File(File(dir, "preview").also { it.mkdirs() }, "$slug.asc").writeBytes(AsciiTestPacks.pack(listOf(AsciiTestPacks.frame(text, 1 + n % 2)), head))
+        }
+        val slugs = listOf("rain-city" to "Rain City", "moai-coast" to "Moai Coast", "night-pagoda" to "Night Pagoda", "orbit-window" to "Orbit Window", "comet-trail" to "Comet Trail", "bee-flight" to "Busy Bees")
+        fun piece(i: Int, cat: String) =
+            """{"slug":"${slugs[i].first}","name":"${slugs[i].second}","category":"$cat","cols":96,"rows":32,"fps":24,"frames":288,"bytes":1000,"sha256":"x","zip":"$cat.zip","note":"A rainy neon street at night.","previewSha256":"x"}"""
+        slugs.forEachIndexed { i, (slug, _) -> still(slug, i) }
         File(dir, "index.json").writeText(
             """{"v":1,"categories":[
-              {"id":"landscapes","name":"Landscapes","blurb":"Hand-built scenery with moving skies.","pieces":3},
-              {"id":"cosmos","name":"Cosmos","blurb":"Stars, planets and orbits.","pieces":2},
-              {"id":"animals","name":"Animals","blurb":"Creatures in motion.","pieces":1}],
-              "pieces":[${piece("rain-city", "Rain City", "landscapes")},${piece("moai-coast", "Moai Coast", "landscapes")},${piece("night-pagoda", "Night Pagoda", "landscapes")},
-                ${piece("orbit-window", "Orbit Window", "cosmos")},${piece("comet-trail", "Comet Trail", "cosmos")},${piece("bee-flight", "Busy Bees", "animals")}]}""",
+              {"id":"landscapes","name":"Landscapes","blurb":"Hand-built scenery with moving skies.","pieces":3,"previewZip":"p1.zip"},
+              {"id":"cosmos","name":"Cosmos","blurb":"Stars, planets and orbits.","pieces":2,"previewZip":"p2.zip"},
+              {"id":"animals","name":"Animals","blurb":"Creatures in motion.","pieces":1,"previewZip":"p3.zip"}],
+              "pieces":[${piece(0, "landscapes")},${piece(1, "landscapes")},${piece(2, "landscapes")},${piece(3, "cosmos")},${piece(4, "cosmos")},${piece(5, "animals")}]}""",
         )
     }
 
-    @Test fun theMenuListsCategoriesThenPieces() {
+    @Test fun theMenuIsCategoriesOnTheLeftAndStillsOnTheRight() {
         TvHarness.setUp()
         cacheIndex()
         ActivityScenario.launch(MainActivity::class.java).use { _ ->
@@ -59,17 +67,14 @@ class AsciiMenuTest {
             compose.press(Button.Select)
             assertTrue("the Screen Saver page must offer ASCII Art", walkTo("ASCII Art"))
             compose.press(Button.Select)
-            assertTrue("the categories must be listed", compose.awaitUntil { texts().any { it == "Landscapes" } })
+            assertTrue("the categories must be listed", compose.awaitUntil { texts().any { it == "Landscapes" } && texts().any { it == "Cosmos" } })
+            assertTrue("the first category's pieces are shown as tiles", compose.awaitUntil { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ascii:rain-city")).fetchSemanticsNodes().isNotEmpty() })
             compose.settle()
-            compose.onRoot().captureRoboImage(shot("ascii-categories"))
-            // Focus starts on the always-present first row (Play Selected), then Down to the first category.
-            assertTrue(walkTo("Landscapes"))
-            compose.press(Button.Select)
-            assertTrue("the category's pieces must be listed", compose.awaitUntil { texts().any { it == "Rain City" } })
-            assertTrue(compose.awaitUntil { compose.focused()?.contains("Rain City") == true })
-            compose.settle()
-            compose.onRoot().captureRoboImage(shot("ascii-pieces"))
-            assertTrue(texts().any { it == "Night Pagoda" } && texts().none { it == "Comet Trail" })
+            compose.onRoot().captureRoboImage(shot("ascii-menu"))
+            // Focusing the next category swaps the grid, as in Choose Aerials.
+            assertTrue(walkTo("Cosmos"))
+            assertTrue("Cosmos pieces replace Landscapes", compose.awaitUntil { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ascii:orbit-window")).fetchSemanticsNodes().isNotEmpty() })
+            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ascii:rain-city")).fetchSemanticsNodes().isEmpty())
         }
     }
 }

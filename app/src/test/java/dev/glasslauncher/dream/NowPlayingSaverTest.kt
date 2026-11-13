@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
 class NowPlayingSaverTest {
+    @get:org.junit.Rule val pinnedClock = dev.glasslauncher.shots.PinnedClockRule()
     private val context = ApplicationProvider.getApplicationContext<Application>()
 
     private val controls = object : NowPlaying.Controls { override fun play() {}; override fun pause() {}; override fun next() {}; override fun previous() {} }
@@ -60,7 +61,7 @@ class NowPlayingSaverTest {
         NowPlayingFixture.state = state
         val saver = NowPlayingSaverView(context, ScreensaverConfig())
         saver.start(); settle()
-        val clock = (0 until saver.childCount).map { saver.getChildAt(it) }.filterIsInstance<android.widget.TextClock>().single()
+        val clock = (0 until saver.childCount).map { saver.getChildAt(it) }.filterIsInstance<ClockText>().single { it.visibility == View.VISIBLE }
         assertEquals("nothing playing: a quiet clock", View.VISIBLE, clock.visibility)
         state.value = np(playing = true); settle()
         assertTrue(texts(saver).contains("Almost Full Moon") && texts(saver).contains("Enigma"))
@@ -107,6 +108,23 @@ class NowPlayingSaverTest {
         assertTrue("neighbouring pixels differ by at most a few levels (worst $worst)", worst <= 8)
     }
 
+    /** P333: the line alone read as a broken control; it now has the elapsed and remaining time, and the saver shows the time of day. */
+    @Test fun theLineHasItsTimesAndTheTimeOfDayIsOnScreen() {
+        dev.glasslauncher.shots.TvHarness.pinClockForTest()
+        NowPlayingFixture.state = MutableStateFlow<NowPlaying?>(np(playing = false))    // paused at 0:50 of 3:20
+        val saver = NowPlayingSaverView(context, ScreensaverConfig())
+        saver.start(); settle()
+        assertTrue("elapsed (${texts(saver)})", texts(saver).contains("0:50"))
+        assertTrue("remaining", texts(saver).contains("-2:30"))
+        val clocks = (0 until saver.childCount).map { saver.getChildAt(it) }.filterIsInstance<ClockText>()
+        assertTrue("a clock is visible while a track is up, and reads 9:41 AM on the pinned clock", clocks.any { it.visibility == View.VISIBLE && it.text.toString() == "9:41 AM" })
+        saver.stop()
+    }
+
+    @Test fun clockFacesRead() {
+        assertEquals("1:23", formatClock(83_000)); assertEquals("0:05", formatClock(5_000)); assertEquals("1:02:03", formatClock(3_723_000)); assertEquals("0:00", formatClock(-5))
+    }
+
     @Test fun progressIsAFractionOfTheLength() {
         val n = np(playing = false)
         assertEquals(0.25f, progressOf(n), 0.001f)
@@ -129,7 +147,8 @@ class NowPlayingSaverTest {
     }
 
     @Test fun shotsOfTheFullScreenSaverAndTheCardOverAPhoto() {
-        NowPlayingFixture.state = MutableStateFlow(np(playing = true).copy(art = cover(), title = "Almost Full Moon", artist = "Enigma"))
+        dev.glasslauncher.shots.TvHarness.pinClockForTest()
+        NowPlayingFixture.state = MutableStateFlow(np(playing = true).copy(speed = 0f, art = cover(), title = "Almost Full Moon", artist = "Enigma"))
         val saver = NowPlayingSaverView(context, ScreensaverConfig())
         saver.start(); settle()
         capture(saver, "np-saver-fullscreen")

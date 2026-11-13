@@ -76,6 +76,46 @@ internal fun lightTint(art: Bitmap): Int {
 internal fun defaultSpectrum(context: Context, cfg: ScreensaverConfig): SpectrumSource? =
     if (cfg.visualizer && context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) OutputMixSpectrum() else null
 
+/**
+ * The time of day, as a TextView that ticks once a minute only while it is shown (a TextClock would also do that, but it reads the system
+ * clock, which a screenshot test cannot pin; this one reads the app's WallClock like the pill does).
+ */
+internal class ClockText(context: Context, private val pattern12: String, private val pattern24: String) : TextView(context) {
+    private val handler = Handler(Looper.getMainLooper())
+    private val tick = object : Runnable {
+        override fun run() { refresh(); handler.postDelayed(this, 60_000 - dev.glasslauncher.widgets.WallClock.now() % 60_000 + 50) }
+    }
+
+    fun refresh() {
+        val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) pattern24 else pattern12
+        text = java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault()).format(java.util.Date(dev.glasslauncher.widgets.WallClock.now()))
+    }
+
+    /** Shown (and ticking) or gone (and silent). */
+    fun shown(on: Boolean) {
+        handler.removeCallbacks(tick)
+        visibility = if (on) VISIBLE else GONE
+        if (on) tick.run()
+    }
+}
+
+/** "1:23" or "1:02:03": a position or length as a clock face reads. */
+internal fun formatClock(ms: Long): String {
+    val total = (ms.coerceAtLeast(0) / 1000).toInt()
+    val h = total / 3600; val m = total / 60 % 60; val sec = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+/** A soft dark rectangle for the cover to lie on: a blurred box, made once. Drawn stretched, so it needs no 9-patch. */
+private fun softShadow(): Bitmap = Bitmap.createBitmap(160, 160, Bitmap.Config.ARGB_8888).also {
+    val c = android.graphics.Canvas(it)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.BLACK; maskFilter = android.graphics.BlurMaskFilter(26f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+    }
+    // Twice: a blurred box is thin at its edges, and the lift should be felt, not just measured.
+    repeat(2) { c.drawRect(52f, 52f, 108f, 108f, p) }
+}
+
 /** A thin progress line: two rounded bars, drawn only when the fraction changes. */
 private class ProgressLine(context: Context) : View(context) {
     private val track = android.graphics.Paint().apply { color = Color.argb(60, 255, 255, 255) }
@@ -176,25 +216,45 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     private val handler = Handler(Looper.getMainLooper())
     private val backdrop = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
     private val dim = View(context).apply { setBackgroundColor(Color.argb(110, 0, 0, 0)) }
-    private val art = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP; outlineProvider = rounded(context, 28f); clipToOutline = true; elevation = context.dp(24f) }
+    /** The cover: sharp square corners, on a soft shadow that falls below it, so it reads as lifted off the screen. */
+    private val art = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+    private val artBox = FrameLayout(context).apply {
+        clipChildren = false
+        val shadow = ImageView(context).apply { setImageBitmap(softShadow()); scaleType = ImageView.ScaleType.FIT_XY; alpha = 1f }
+        val spread = context.dp(54f).toInt()
+        addView(shadow, FrameLayout.LayoutParams(context.dp(300f).toInt() + 2 * spread, context.dp(300f).toInt() + 2 * spread).apply { setMargins(-spread, -spread + context.dp(40f).toInt(), -spread, -spread) })
+        addView(art, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+    private val elapsed = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.END; typeface = android.graphics.Typeface.MONOSPACE }
+    private val remaining = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.START; typeface = android.graphics.Typeface.MONOSPACE }
     private val title = TextView(context).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f); setTypeface(typeface, android.graphics.Typeface.BOLD); gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
     private val artist = TextView(context).apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f); gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
     private val progress = ProgressLine(context)
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
-        addView(art, LinearLayout.LayoutParams(context.dp(300f).toInt(), context.dp(300f).toInt()))
+        clipChildren = false
+        addView(artBox, LinearLayout.LayoutParams(context.dp(300f).toInt(), context.dp(300f).toInt()))
         addView(title, LinearLayout.LayoutParams(context.dp(640f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(26f).toInt() })
         addView(artist, LinearLayout.LayoutParams(context.dp(640f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(4f).toInt() })
-        addView(progress, LinearLayout.LayoutParams(context.dp(420f).toInt(), context.dp(4f).toInt()).apply { topMargin = context.dp(22f).toInt() })
+        // Elapsed, the line, and what is left: a bare line reads as a broken control.
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(elapsed, LinearLayout.LayoutParams(context.dp(64f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(progress, LinearLayout.LayoutParams(0, context.dp(4f).toInt(), 1f).apply { marginStart = context.dp(12f).toInt(); marginEnd = context.dp(12f).toInt() })
+            addView(remaining, LinearLayout.LayoutParams(context.dp(64f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT))
+        }, LinearLayout.LayoutParams(context.dp(560f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(22f).toInt() })
     }
-    private val clock = TextClock(context).apply { setTextColor(Color.argb(150, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 64f); format12Hour = "h:mm"; format24Hour = "H:mm"; gravity = Gravity.CENTER; visibility = GONE }
+    /** The time of day, small, in a corner while a track is up (the big clock takes over when nothing plays). */
+    private val cornerClock = ClockText(context, "h:mm a", "H:mm").apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); visibility = GONE }
+    private val clock = ClockText(context, "h:mm", "H:mm").apply { setTextColor(Color.argb(150, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 64f); gravity = Gravity.CENTER; visibility = GONE }
     private var np: NowPlaying? = null
     private var shownKey: String? = null
     private var shownArt: Bitmap? = null
     private var pendingSwap: Runnable? = null
     private val tick = object : Runnable {
-        override fun run() { np?.let { progress.fraction = progressOf(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
+        override fun run() { np?.let { showProgress(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
     }
     private val note = TextView(context).apply { setTextColor(Color.argb(170, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER; visibility = GONE }
     /** The visualizer layer, if it is on and the TV can give it audio. */
@@ -212,6 +272,16 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         addView(note, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = context.dp(36f).toInt() })
         addView(content, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         addView(clock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        addView(cornerClock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { setMargins(0, context.dp(36f).toInt(), context.dp(48f).toInt(), 0) })
+    }
+
+    /** The line and the two times under the cover. A track of unknown length shows neither time. */
+    private fun showProgress(n: NowPlaying) {
+        progress.fraction = progressOf(n)
+        val known = n.durationMs > 0
+        val pos = n.positionNow()
+        elapsed.text = if (known) formatClock(pos) else ""
+        remaining.text = if (known) "-" + formatClock(n.durationMs - pos) else ""
     }
 
     override fun start() {
@@ -219,7 +289,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         scope.launch { context.nowPlayingFlow().collect { n -> runCatching { show(n) }.onFailure { android.util.Log.w("VitreNowPlaying", "could not show ${n?.key}", it) } } }
     }
 
-    override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt() }
+    override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt(); clock.shown(false); cornerClock.shown(false) }
 
     private fun show(n: NowPlaying?) {
         val was = np
@@ -228,11 +298,11 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         // The visualizer listens only while music plays; the rest of the time nothing runs.
         if (n?.playing == true) bars?.run() else { bars?.halt(); note.visibility = GONE }
         if (n == null) {
-            content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.visibility = VISIBLE
+            content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.shown(true); cornerClock.shown(false)
             shownKey = null; shownArt = null
             return
         }
-        clock.visibility = GONE; content.visibility = VISIBLE; backdrop.visibility = VISIBLE; dim.visibility = VISIBLE
+        clock.shown(false); cornerClock.shown(true); content.visibility = VISIBLE; backdrop.visibility = VISIBLE; dim.visibility = VISIBLE
         if (shownKey != n.key || shownArt !== n.art) {
             // A track change dissolves: the content fades out, is swapped, and fades back in. The swap is its own delayed task, not the end
             // action of the fade: a player sends a burst of updates around a change, and each one used to restart the fade and drop the swap.
@@ -255,7 +325,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
             pendingSwap = swap
             if (was == null) { content.alpha = 0f; swap.run() } else { content.animate().alpha(0f).setDuration(200).start(); handler.postDelayed(swap, 200) }
         } else if (pendingSwap == null) content.animate().alpha(if (n.playing) 1f else 0.6f).setDuration(250).start()
-        progress.fraction = progressOf(n)
+        showProgress(n)
         if (n.playing) handler.postDelayed(tick, 1000)
     }
 }

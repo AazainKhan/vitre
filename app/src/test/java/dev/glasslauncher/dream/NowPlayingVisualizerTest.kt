@@ -112,7 +112,7 @@ class NowPlayingVisualizerTest {
     }
 
     @Test fun shotOfTheSaverWithTheVisualizer() {
-        val state = MutableStateFlow<NowPlaying?>(np(playing = true).copy(art = android.graphics.Bitmap.createBitmap(256, 256, android.graphics.Bitmap.Config.ARGB_8888).also {
+        val state = MutableStateFlow<NowPlaying?>(np(playing = true).copy(speed = 0f, art = android.graphics.Bitmap.createBitmap(256, 256, android.graphics.Bitmap.Config.ARGB_8888).also {
             android.graphics.Canvas(it).apply {
                 drawRect(0f, 0f, 256f, 256f, android.graphics.Paint().apply { shader = android.graphics.LinearGradient(0f, 0f, 256f, 256f, 0xFF0F766E.toInt(), 0xFFBE185D.toInt(), android.graphics.Shader.TileMode.CLAMP) })
             }
