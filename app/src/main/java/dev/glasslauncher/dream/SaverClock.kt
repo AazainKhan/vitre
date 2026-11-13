@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
-import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -15,11 +14,11 @@ import dev.glasslauncher.widgets.WallClock
 import java.util.Date
 
 /**
- * The one clock every screensaver shows (P338): the Aerials clock. Light Inter, "9:41" with a small "AM"/"PM" in 12-hour mode, flat text with
+ * The one clock every screensaver shows (P338): the Aerials clock, 12 or 24-hour by the launcher's own "24-Hour Time" setting. Light Inter, "9:41" with a small "AM"/"PM" in 12-hour mode, flat text with
  * no pill or shadow, top right. It ticks once a minute and only while it is shown. It reads the app's [WallClock] (as the status pill does),
  * so a screenshot test can pin it.
  */
-internal class SaverClock(context: Context, private val h24: Boolean = DateFormat.is24HourFormat(context)) : TextView(context) {
+internal class SaverClock(context: Context, private val h24: Boolean) : TextView(context) {
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() { refresh(); handler.postDelayed(this, 60_000 - WallClock.now() % 60_000 + 50) }
@@ -56,8 +55,8 @@ internal class SaverClock(context: Context, private val h24: Boolean = DateForma
 }
 
 /** A screensaver [base] (one that draws no clock of its own) with the shared clock over it, if Show Clock is on. */
-internal class ClockOverSaver(context: Context, private val base: View, cfg: ScreensaverConfig) : FrameLayout(context), Saver {
-    private val clock = SaverClock(context)
+internal class ClockOverSaver(context: Context, private val base: View, cfg: ScreensaverConfig, h24: Boolean = false) : FrameLayout(context), Saver {
+    private val clock = SaverClock(context, h24)
     private val on = cfg.showClock
 
     init {

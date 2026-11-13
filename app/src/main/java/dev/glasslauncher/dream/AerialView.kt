@@ -36,14 +36,14 @@ import java.util.Date
  * Apple's aerial videos, caches them on disk for offline replay, and shows the location and time.
  */
 @OptIn(UnstableApi::class)
-class AerialView(context: Context, private val cfg: ScreensaverConfig, private val nearEndMs: Long = 0L) : FrameLayout(context), Saver {
+class AerialView(context: Context, private val cfg: ScreensaverConfig, private val nearEndMs: Long = 0L, h24: Boolean = false) : FrameLayout(context), Saver {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val surface = SurfaceView(context)
     private val fade = View(context).apply { setBackgroundColor(Color.BLACK) }
     // tvOS-style: a light clock (AM/PM small beside it in 12-hour mode) and a small caption, each with only a soft contact shadow.
     private val location = label(13f, alpha = 0.85f).apply { gravity = Gravity.START; letterSpacing = 0.01f }
-    private val clock = SaverClock(context)
+    private val clock = SaverClock(context, h24)
     private var player: ExoPlayer? = null
     private var videos: List<AerialVideo> = emptyList()
 

@@ -19,10 +19,10 @@ internal fun saverView(context: Context, slideshow: Boolean, nearEndMs: Long = 0
     val cfg = full.screensaver.let { if (reduceMotion) it.copy(kenBurns = false) else it }
     if (nowPlaying) return NowPlayingSaverView(context, cfg, h24 = full.clock24h)
     // Aerials draws the shared clock itself (beside its location); the others get it laid over them.
-    val base = if (asciiSlug != null) ClockOverSaver(context, AsciiView(context, cfg.copy(asciiPiece = asciiSlug)), cfg)
-        else if (ascii) ClockOverSaver(context, AsciiView(context, cfg), cfg)
-        else if (slideshow) ClockOverSaver(context, SlideshowView(context, cfg), cfg)
-        else AerialView(context, cfg, nearEndMs)
+    val base = if (asciiSlug != null) ClockOverSaver(context, AsciiView(context, cfg.copy(asciiPiece = asciiSlug)), cfg, full.clock24h)
+        else if (ascii) ClockOverSaver(context, AsciiView(context, cfg), cfg, full.clock24h)
+        else if (slideshow) ClockOverSaver(context, SlideshowView(context, cfg), cfg, full.clock24h)
+        else AerialView(context, cfg, nearEndMs, full.clock24h)
     // The glass Now Playing card over any other screensaver, if it is on.
     return if (cfg.nowPlayingCard) CardOverSaver(context, base, NowPlayingCardView(context)) else base
 }

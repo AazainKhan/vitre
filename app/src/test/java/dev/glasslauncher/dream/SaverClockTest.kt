@@ -36,6 +36,14 @@ class SaverClockTest {
         assertEquals("stopped: gone and silent", View.GONE, clock.visibility)
     }
 
+    @Test fun everySaverFollowsTheLaunchersTwentyFourHourSetting() {
+        dev.glasslauncher.shots.TvHarness.pinClockForTest()
+        val saver = ClockOverSaver(context, View(context), ScreensaverConfig(), h24 = true)
+        saver.start(); shadowOf(android.os.Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertEquals("9:41", clockOf(saver).text.toString())
+        saver.stop()
+    }
+
     @Test fun showClockOffHidesIt() {
         val saver = ClockOverSaver(context, View(context), ScreensaverConfig(showClock = false))
         saver.start(); shadowOf(android.os.Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
