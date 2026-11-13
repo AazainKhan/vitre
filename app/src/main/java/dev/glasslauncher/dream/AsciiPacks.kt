@@ -67,11 +67,13 @@ object AsciiPacks {
     suspend fun load(context: Context, slug: String): AsciiPiece? = withContext(Dispatchers.IO) {
         if (!name.matches(slug)) return@withContext null
         val file = File(dir(context), "$slug.asc")
-        if (!file.exists()) {
-            val entry = index(context)?.pieces?.firstOrNull { it.slug == slug } ?: return@withContext null
-            fetchCategory(context, entry.zip)
-        }
-        runCatching { AsciiPiece.parse(file.readBytes()) }.getOrNull()
+        fun cached() = runCatching { AsciiPiece.parse(file.readBytes()) }.getOrNull()
+        cached()?.let { return@withContext it }
+        // Not on disk, or on disk in a format this build can't play (an older pack): fetch the current catalogue and category once.
+        if (file.exists()) { file.delete(); index(context, refresh = true) }
+        val entry = index(context)?.pieces?.firstOrNull { it.slug == slug } ?: return@withContext null
+        fetchCategory(context, entry.zip)
+        cached()
     }
 
     private fun fetchCategory(context: Context, zip: String) {

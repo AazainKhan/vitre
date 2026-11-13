@@ -41,8 +41,11 @@ class AsciiPieceTest {
         val f = AsciiPiece.parse(pack(listOf(a, b)))!!.frames()
         f.next(); f.next()
         assertTrue(f.next())
-        assertEquals("the loop starts again from frame 0", 'A', f.text[0]); assertEquals(n, f.dirtyCount)
-        assertTrue(f.next()); assertEquals('Z', f.text[0])
+        assertEquals("the loop is back at frame 0", 'A', f.text[0])
+        assertEquals("by a small step: only the cells that differ, not the whole grid", 8, f.dirtyCount)
+        assertTrue(f.next()); assertEquals("and goes on to frame 1", 'Z', f.text[0])
+        assertEquals(8, f.dirtyCount)
+        assertTrue(f.next()); assertEquals("then round again", 'A', f.text[0])
     }
 
     @Test fun aWideCharacterSurvivesTheTwoBytePlanes() {
@@ -61,9 +64,9 @@ class AsciiPieceTest {
     @Test fun badPacksAreRefused() {
         assertNull(AsciiPiece.parse(ByteArray(4)))
         assertNull("wrong magic", AsciiPiece.parse(pack(listOf(frame("A"))).also { it[0] = 'X'.code.toByte() }))
-        assertNull("too big a grid", AsciiPiece.parse(pack(listOf(frame("A")), """{"v":1,"slug":"t","cols":500,"rows":500,"fps":10,"n":1}""")))
-        assertNull("too fast", AsciiPiece.parse(pack(listOf(frame("A")), """{"v":1,"slug":"t","cols":8,"rows":3,"fps":240,"n":1}""")))
-        assertNull("unknown version", AsciiPiece.parse(pack(listOf(frame("A")), """{"v":2,"slug":"t","cols":8,"rows":3,"fps":10,"n":1}""")))
+        assertNull("too big a grid", AsciiPiece.parse(pack(listOf(frame("A")), """{"v":2,"slug":"t","cols":500,"rows":500,"fps":10,"n":1}""")))
+        assertNull("too fast", AsciiPiece.parse(pack(listOf(frame("A")), """{"v":2,"slug":"t","cols":8,"rows":3,"fps":240,"n":1}""")))
+        assertNull("unknown version", AsciiPiece.parse(pack(listOf(frame("A")), """{"v":3,"slug":"t","cols":8,"rows":3,"fps":10,"n":1}""")))
         assertNull("a header longer than the file", AsciiPiece.parse("ASC1".toByteArray() + byteArrayOf(0, 0, 100, 0) + ByteArray(10)))
     }
 }

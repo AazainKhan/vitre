@@ -7,7 +7,7 @@
  * Every piece is a pure function of t, so it is run once here. A piece that repeats exactly (a loop, or a still) is baked as one
  * period; any other is baked for CLIP_S seconds with its last DISSOLVE_S seconds dissolving cell by cell into its first, so the
  * loop point has no jump. Output per piece: <slug>.asc, a header (JSON) and the frames (cell planes, each frame XOR the one before,
- * deflated as one raw stream so a device can inflate it a frame at a time). Then: one <category>.zip per category, index.json,
+ * deflated as one raw stream so a device can inflate it a frame at a time; v2 adds the closing delta back to frame 0). Then: one <category>.zip per category, index.json,
  * categories.json, and the licence files. Nothing is fetched; the checkout is read from disk.
  */
 import fs from "fs";
@@ -90,15 +90,13 @@ async function bake(file) {
     clip = Array.from({ length: N }, (_, k) => (k >= X ? at(k) : dissolve(at(N + k), at(k), (k + 1) / (X + 1), n)));
     loop = "dissolve";
   }
-  const stream = Buffer.concat(clip.map((f, k) => {
-    if (k === 0) return f;
-    const d = Buffer.alloc(f.length);
-    for (let i = 0; i < f.length; i++) d[i] = f[i] ^ clip[k - 1][i];
-    return d;
-  }));
+  // Frame 0 whole, then each frame as a delta from the one before, then one last delta from the final frame back to frame 0: the
+  // loop then closes with a step as small as any other, not a repaint of the whole grid.
+  const delta = (a, b) => { const d = Buffer.alloc(a.length); for (let i = 0; i < a.length; i++) d[i] = a[i] ^ b[i]; return d; };
+  const stream = Buffer.concat([...clip.map((f, k) => (k === 0 ? f : delta(f, clip[k - 1]))), delta(clip[0], clip.at(-1))]);
   const body = zlib.deflateRawSync(stream, { level: 9 });
   const head = {
-    v: 1, slug: m.slug, name: m.name, category: m.category, note: m.note, tags: m.tags, cols, rows, fps, n: clip.length, loop,
+    v: 2, slug: m.slug, name: m.name, category: m.category, note: m.note, tags: m.tags, cols, rows, fps, n: clip.length, loop,
     cell: m.cell ?? "text", look: m.look ?? null, dots: m.dots ?? null, palette: [...KEYS].map((k) => m.palette?.[k] ?? null),
   };
   const hb = Buffer.from(JSON.stringify(head));

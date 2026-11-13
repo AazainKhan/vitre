@@ -15,9 +15,11 @@ object AsciiTestPacks {
         return b
     }
 
-    fun pack(frames: List<ByteArray>, head: String = """{"v":1,"slug":"t","cols":$COLS,"rows":$ROWS,"fps":10,"n":${frames.size},"palette":["#ff0000"]}"""): ByteArray {
+    fun pack(frames: List<ByteArray>, head: String = """{"v":2,"slug":"t","cols":$COLS,"rows":$ROWS,"fps":10,"n":${frames.size},"palette":["#ff0000"]}"""): ByteArray {
         val stream = java.io.ByteArrayOutputStream()
         frames.forEachIndexed { k, f -> stream.write(if (k == 0) f else ByteArray(f.size) { (f[it].toInt() xor frames[k - 1][it].toInt()).toByte() }) }
+        // the closing delta, from the last frame back to the first
+        stream.write(ByteArray(frames[0].size) { (frames[0][it].toInt() xor frames.last()[it].toInt()).toByte() })
         val d = Deflater(9, true).also { it.setInput(stream.toByteArray()); it.finish() }
         val out = ByteArray(stream.size() + 64); val len = d.deflate(out)
         val h = head.toByteArray()
