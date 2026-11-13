@@ -7,8 +7,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import dev.glasslauncher.data.LauncherConfig
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import dev.glasslauncher.system.AppNotice
 import dev.glasslauncher.system.NoticeStore
 import dev.glasslauncher.widgets.NowPlayingService
 import dev.glasslauncher.ui.MenuRow
@@ -66,27 +68,18 @@ fun NoticeDrawer(cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, 
                 )
 
                 else -> {
-                    MenuRow(
-                        title = "Clear all",
-                        onClick = { rows.forEach { NoticeStore.removed(it.key) } },
-                        value = "${rows.size}",
-                        modifier = androidx.compose.ui.Modifier.focusRequester(first),
-                    )
-                    rows.forEach { n ->
-                        MenuRow(
-                            title = n.title.ifBlank { appLabel(n.pkg) },
-                            onClick = {
-                                NoticeStore.removed(n.key)
-                                NowPlayingService.instance?.dismiss(n.key)
-                                context.packageManager.getLaunchIntentForPackage(n.pkg)
-                                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    ?.let { runCatching { context.startActivity(it) } }
-                                close()
-                            },
-                            value = agoLabel(now, n.whenMs),
-                            help = n.text ?: appLabel(n.pkg),
-                        )
+                    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.CenterEnd) {
+                        PillButton("Clear all", androidx.compose.ui.Modifier.focusRequester(first)) { rows.forEach { NoticeStore.removed(it.key) } }
                     }
+                    val open = { n: AppNotice ->
+                        NoticeStore.removed(n.key)
+                        NowPlayingService.instance?.dismiss(n.key)
+                        context.packageManager.getLaunchIntentForPackage(n.pkg)
+                            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            ?.let { runCatching { context.startActivity(it) } }
+                        close()
+                    }
+                    groupNotices(rows).forEach { g -> NoticeGroupView(g, now, open) }
                 }
             }
         }
@@ -96,12 +89,24 @@ fun NoticeDrawer(cfg: LauncherConfig, active: Boolean, open: (Overlay) -> Unit, 
 
 /** An app's own name, falling back to the package when it is not installed any more. */
 @Composable
-private fun appLabel(pkg: String): String {
+internal fun appLabel(pkg: String): String {
     val pm = LocalContext.current.packageManager
     return remember(pkg) {
-        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()?.takeIf { it.isNotBlank() && it != pkg }
+            ?: labelFallback(pkg)
     }
 }
 
+/** An app with no label of its own (or not installed any more): the last part of its package name, capitalised ("com.chat.app" -> "App"). */
+internal fun labelFallback(pkg: String): String =
+    pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }.ifBlank { pkg }
+
 /** Settings opened straight onto a page, for the "grant me" row. */
 private fun SettingsOverlay(@Suppress("UNUSED_PARAMETER") page: String) = Overlay.Settings
+
+/** One app's notifications, newest first. */
+internal class NoticeGroup(val pkg: String, val items: List<AppNotice>)
+
+/** [rows] (newest first) grouped by app; the groups keep the order of their newest notification. */
+internal fun groupNotices(rows: List<AppNotice>): List<NoticeGroup> =
+    rows.groupBy { it.pkg }.map { (pkg, items) -> NoticeGroup(pkg, items) }

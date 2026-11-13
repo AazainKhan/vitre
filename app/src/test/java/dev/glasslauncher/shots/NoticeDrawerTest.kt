@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.input.key.Key
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.github.takahirom.roborazzi.captureRoboImage
 import dev.glasslauncher.MainActivity
 import dev.glasslauncher.system.AppNotice
 import dev.glasslauncher.system.NoticeStore
@@ -87,6 +88,15 @@ class NoticeDrawerTest {
         whenMs = System.currentTimeMillis() - agoMs, ongoing = false, media = false,
     )
 
+    /** An installed app with a label and a coloured icon, so shots show what real apps look like. */
+    private fun fakeApp(pkg: String, label: String, color: Int) {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        val info = android.content.pm.ApplicationInfo().apply { packageName = pkg; nonLocalizedLabel = label }
+        val spm = org.robolectric.Shadows.shadowOf(ctx.packageManager)
+        spm.installPackage(android.content.pm.PackageInfo().apply { packageName = pkg; applicationInfo = info })
+        spm.setApplicationIcon(pkg, android.graphics.drawable.GradientDrawable().apply { setColor(color); cornerRadius = 14f })
+    }
+
     @After fun clearStore() { NoticeStore.clear(); NoticeStore.disconnected() }
 
     /** The pill carries the way in: one glass circle beside it, focusable with it. */
@@ -133,12 +143,12 @@ class NoticeDrawerTest {
         }
     }
 
-    /** Newest first, and older ones keep their place below. */
+    /** Newest app first, and older ones keep their place below (one app's several are a stack, see below). */
     @Test fun newestIsAtTheTop() {
         TvHarness.setUp()
         NoticeStore.onConnected()
-        NoticeStore.posted(notice("older", agoMs = 60 * 60_000))
-        NoticeStore.posted(notice("newer", agoMs = 0))
+        NoticeStore.posted(notice("older", pkg = "com.old.app", agoMs = 60 * 60_000))
+        NoticeStore.posted(notice("newer", pkg = "com.new.app", agoMs = 0))
         ActivityScenario.launch(MainActivity::class.java).use { _ ->
             openDrawer()
             val seen = texts()
@@ -162,4 +172,43 @@ class NoticeDrawerTest {
         }
     }
 
+    /** P325: grouped cards. Three from one app rest as a stack; Select opens it; Show less folds it. */
+    @Test fun severalFromOneAppRestAsAStack() {
+        TvHarness.setUp()
+        fakeApp("com.chat.app", "Messages", 0xFF34C759.toInt())
+        fakeApp("com.shop.app", "Shop", 0xFFFF9500.toInt())
+        NoticeStore.onConnected()
+        NoticeStore.posted(notice("Anna", pkg = "com.chat.app", agoMs = 60_000))
+        NoticeStore.posted(notice("Ben", pkg = "com.chat.app", agoMs = 5 * 60_000))
+        NoticeStore.posted(notice("Cleo", pkg = "com.chat.app", agoMs = 9 * 60_000))
+        NoticeStore.posted(notice("Your order shipped", pkg = "com.shop.app", agoMs = 3 * 3_600_000))
+        ActivityScenario.launch(MainActivity::class.java).use { _ ->
+            openDrawer()
+            assertTrue("the stack shows its newest card and how many are behind it", texts().any { it.contains("+2 more") })
+            assertTrue("older cards of the stack are folded away", texts().none { it.contains("Cleo") })
+            compose.settle()
+            compose.onRoot().captureRoboImage(shot("notice-cards-stack"))
+            compose.press(Button.Down)
+            compose.settle()
+            compose.onRoot().captureRoboImage(shot("notice-cards-focus"))
+            compose.press(Button.Select)
+            compose.settle()
+            assertTrue("Select opens the stack", texts().any { it.contains("Cleo") } && texts().any { it.contains("Show less") })
+            compose.onRoot().captureRoboImage(shot("notice-cards-open"))
+        }
+    }
+
+    @Test fun anAppWithoutALabelIsNamedFromItsPackage() {
+        assertEquals("App", dev.glasslauncher.home.labelFallback("com.chat.app"))
+        assertEquals("Solo", dev.glasslauncher.home.labelFallback("solo"))
+    }
+
+    @Test fun groupingKeepsTheNewestAppFirst() {
+        val a = notice("a1", pkg = "p.a", agoMs = 0)
+        val b = notice("b1", pkg = "p.b", agoMs = 10)
+        val a2 = notice("a2", pkg = "p.a", agoMs = 20)
+        val g = dev.glasslauncher.home.groupNotices(listOf(a, b, a2))
+        assertEquals(listOf("p.a", "p.b"), g.map { it.pkg })
+        assertEquals(listOf("a1", "a2"), g[0].items.map { it.title })
+    }
 }
