@@ -11,10 +11,17 @@ class NowPlayingArtTest {
         ArtPick.pick(art, album, icon, artUri, albumUri, iconUri)
 
     // --- source order ---
-    @Test fun aRealBitmapWins() {
-        val p = pick(art = "A", album = "B", icon = "I", artUri = "https://x/y.jpg")
+    @Test fun aRealBitmapWinsWhenThereIsNoUri() {
+        val p = pick(art = "A", album = "B", icon = "I")
         assertEquals("A", p.bitmap); assertNull(p.uri); assertFalse(p.isIcon)
         assertEquals("B", pick(album = "B", icon = "I").bitmap)
+    }
+
+    /** P324: Spotify TV left the previous track's bitmap in the metadata, so a bitmap first kept the old cover for good. */
+    @Test fun anArtUriBeatsAStaleBitmapWhichIsOnlyTheFallback() {
+        val p = pick(art = "OLD", icon = "I", artUri = "https://x/y.jpg")
+        assertNull(p.bitmap); assertEquals("https://x/y.jpg", p.uri); assertEquals("OLD", p.fallback); assertFalse(p.fallbackIsIcon)
+        assertTrue("the icon as fallback is still an icon", pick(icon = "I", artUri = "https://x/y.jpg").fallbackIsIcon)
     }
 
     @Test fun anArtUriBeatsTheIconBitmapWhichBecomesTheFallback() {

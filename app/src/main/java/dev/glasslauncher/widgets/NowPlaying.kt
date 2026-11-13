@@ -208,6 +208,7 @@ object NowPlayingSource {
                     meta.getBitmap(MediaMetadata.METADATA_KEY_ART), meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART), meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON),
                     meta.getString(MediaMetadata.METADATA_KEY_ART_URI), meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI), meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
                 )
+                android.util.Log.i("GlassNowPlaying", "pick uri=${pick.uri != null} bitmap=${pick.bitmap != null} icon=${pick.isIcon}")
                 var artIsIcon = pick.isIcon
                 val shownArt: Bitmap?
                 if (pick.uri != null) {
@@ -220,7 +221,7 @@ object NowPlayingSource {
                     if (hit == null && !failed) fetchArt(uri, key, c.packageName, if (sameUriNewTrack) 1_500 else 0)
                     lastUri = uri; lastUriTrack = track
                     // Until the cover lands: the neutral placeholder (never the app's logo, unless the fetch failed).
-                    shownArt = hit ?: pick.fallback?.takeIf { failed }?.let { scaled(it) }.also { if (it != null) artIsIcon = true }
+                    shownArt = hit ?: pick.fallback?.takeIf { failed }?.let { scaled(it) }.also { if (it != null) artIsIcon = pick.fallbackIsIcon }
                 } else {
                     // The same kind of source for the same track keeps the scaled copy (a pause hands back a new metadata object).
                     val sourceKey = "$track|${if (pick.bitmap == null) "none" else if (pick.isIcon) "icon" else "art"}"

@@ -9,17 +9,19 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 /**
  * Where Now Playing's cover comes from. Sessions publish it three ways (and Spotify's TV app, like most, often only
  * as a URI, with the app's own LOGO as DISPLAY_ICON): picking that logo as "the art" is what left a green logo
- * (and a green backdrop baked from it) up for seconds, or for good. Order: a real art bitmap, then an art URI, then
- * the icon (bitmap, then URI). With an art URI the icon is only the fallback if the fetch fails.
+ * (and a green backdrop baked from it) up for seconds, or for good. Order: an art URI, then a real art bitmap, then
+ * the icon (bitmap, then URI). The URI comes first because an app may leave the previous track's bitmap in the metadata
+ * (Spotify TV did: the cover stayed on the first track, P324); the bitmap or icon is only the fallback if the fetch fails.
  */
 object ArtPick {
-    class Pick<B : Any>(val bitmap: B?, val uri: String?, val fallback: B?, val isIcon: Boolean) {
+    class Pick<B : Any>(val bitmap: B?, val uri: String?, val fallback: B?, val isIcon: Boolean, val fallbackIsIcon: Boolean = true) {
         val none get() = bitmap == null && uri == null
     }
 
     fun <B : Any> pick(art: B?, albumArt: B?, icon: B?, artUri: String?, albumArtUri: String?, iconUri: String?): Pick<B> {
-        (art ?: albumArt)?.let { return Pick(it, null, null, false) }
-        (safeUri(artUri) ?: safeUri(albumArtUri))?.let { return Pick(null, it, icon, false) }
+        val bitmap = art ?: albumArt
+        (safeUri(artUri) ?: safeUri(albumArtUri))?.let { return Pick(null, it, bitmap ?: icon, false, fallbackIsIcon = bitmap == null) }
+        bitmap?.let { return Pick(it, null, null, false) }
         icon?.let { return Pick(it, null, null, true) }
         safeUri(iconUri)?.let { return Pick(null, it, null, true) }
         return Pick(null, null, null, false)
