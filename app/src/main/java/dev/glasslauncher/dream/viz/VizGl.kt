@@ -16,6 +16,11 @@ import javax.microedition.khronos.opengles.GL10
  * If a shader does not compile or the framebuffer is not complete, [onFailure] is called once and the host falls back to the Canvas bars.
  */
 class VizGlView(context: Context, private val style: VisualizerStyle, private val onFailure: () -> Unit) : GLSurfaceView(context) {
+    /** Read each time the saver opens, so `setprop` takes effect without restarting the app. */
+    private val small = prop("debug.vitre.viz.small")
+    private val stats = prop("debug.vitre.viz.stats")
+    private val W = if (small) 960 else 1280
+    private val H = if (small) 540 else 720
     private val renderer = Renderer()
     private var running = false
     private var lastRequest = 0L
@@ -35,7 +40,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         preserveEGLContextOnPause = false
         setRenderer(renderer)
         renderMode = RENDERMODE_WHEN_DIRTY
-        holder.setFixedSize(WIDTH, HEIGHT)
+        holder.setFixedSize(W, H)
     }
 
     /** The latest audio (the 256 x 3 image and the energies), read by the next frame. */
@@ -99,7 +104,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
                 GLES20.glGenTextures(2, fboTex, 0); GLES20.glGenFramebuffers(2, fbo, 0)
                 for (i in 0..1) {
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[i]); filters()
-                    GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, WIDTH, HEIGHT, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+                    GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, W, H, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
                     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[i])
                     GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, fboTex[i], 0)
                     GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
@@ -122,12 +127,12 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, AudioAnalysis.BANDS, 3, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, audioBytes)
             if (style == VisualizerStyle.Warp) {
                 val next = 1 - ping
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[next]); GLES20.glViewport(0, 0, WIDTH, HEIGHT)
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[next]); GLES20.glViewport(0, 0, W, H)
                 use(program, time, b, m, h, beatNow, tn)
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[ping])
                 GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPrev"), 1)
                 quad(program)
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0); GLES20.glViewport(0, 0, WIDTH, HEIGHT)
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0); GLES20.glViewport(0, 0, W, H)
                 GLES20.glUseProgram(blit)
                 GLES20.glUniform3f(GLES20.glGetUniformLocation(blit, "uTint"), tn[0], tn[1], tn[2])
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[next])
@@ -149,14 +154,14 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             val cost = SystemClock.uptimeMillis() - t0
             costSum += cost; costMax = maxOf(costMax, cost)
             if (++frames == 120) {
-                android.util.Log.i("VitreViz", "$style ${WIDTH}x$HEIGHT: draw+finish avg ${costSum * 10 / 120 / 10f} ms, max $costMax ms over 120 frames")
+                android.util.Log.i("VitreViz", "$style ${W}x$H: draw+finish avg ${costSum * 10 / 120 / 10f} ms, max $costMax ms over 120 frames")
                 costSum = 0; costMax = 0; frames = 0
             }
         }
 
         private fun use(p: Int, time: Float, b: Float, m: Float, h: Float, beatNow: Float, tn: FloatArray) {
             GLES20.glUseProgram(p)
-            GLES20.glUniform2f(GLES20.glGetUniformLocation(p, "uRes"), WIDTH.toFloat(), HEIGHT.toFloat())
+            GLES20.glUniform2f(GLES20.glGetUniformLocation(p, "uRes"), W.toFloat(), H.toFloat())
             GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uTime"), time)
             GLES20.glUniform3f(GLES20.glGetUniformLocation(p, "uTint"), tn[0], tn[1], tn[2])
             GLES20.glUniform1f(GLES20.glGetUniformLocation(p, "uBass"), b)
@@ -207,16 +212,10 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
     }
 
     companion object {
-        /** 1280 x 720, or 960 x 540 with `setprop debug.vitre.viz.small 1` (a device test of how much headroom the GPU has). */
+        /** 1280 x 720, or 960 x 540 with `setprop debug.vitre.viz.small 1`; `debug.vitre.viz.stats 1` logs the GPU time per frame (VitreViz). */
         private fun prop(name: String) = runCatching {
             Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, name, "0") == "1"
         }.getOrDefault(false)
-        private val stats by lazy { prop("debug.vitre.viz.stats") }
-        private val small = runCatching {
-            Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, "debug.vitre.viz.small", "0") == "1"
-        }.getOrDefault(false)
-        val WIDTH = if (small) 960 else 1280
-        val HEIGHT = if (small) 540 else 720
         const val FRAME_MS = 33L
     }
 }
