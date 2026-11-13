@@ -209,7 +209,7 @@ class NowPlayingCardView(context: Context) : FrameLayout(context), Saver {
  * from the cover itself (a tiny copy, scaled up smoothly, dimmed). Paused music stays up, dimmer; with nothing playing it is a quiet clock.
  * It redraws on a track change and once a second for the progress line while playing, and not otherwise.
  */
-class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, private val spectrum: SpectrumSource? = defaultSpectrum(context, cfg), private val h24: Boolean = false) : FrameLayout(context), Saver {
+class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, private val spectrum: SpectrumSource? = defaultSpectrum(context, cfg), private val glFactory: GlFactory? = RealGl, private val h24: Boolean = false) : FrameLayout(context), Saver {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val handler = Handler(Looper.getMainLooper())
     private val backdrop = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
@@ -228,8 +228,8 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     }
     private val elapsed = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.END; typeface = android.graphics.Typeface.MONOSPACE }
     private val remaining = TextView(context).apply { setTextColor(Color.argb(190, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER_VERTICAL or Gravity.START; typeface = android.graphics.Typeface.MONOSPACE }
-    private val title = TextView(context).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f); setTypeface(typeface, android.graphics.Typeface.BOLD); gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
-    private val artist = TextView(context).apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f); gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+    private val title = TextView(context).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f); setTypeface(typeface, android.graphics.Typeface.BOLD); gravity = Gravity.CENTER; maxLines = 2; setShadowLayer(context.dp(6f), 0f, context.dp(1.5f), Color.argb(170, 0, 0, 0)); ellipsize = android.text.TextUtils.TruncateAt.END }
+    private val artist = TextView(context).apply { setTextColor(Color.argb(200, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f); gravity = Gravity.CENTER; maxLines = 1; setShadowLayer(context.dp(5f), 0f, context.dp(1f), Color.argb(150, 0, 0, 0)); ellipsize = android.text.TextUtils.TruncateAt.END }
     private val progress = ProgressLine(context)
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -260,7 +260,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     private val note = TextView(context).apply { setTextColor(Color.argb(170, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER; visibility = GONE }
     /** The visualizer layer, if it is on and the TV can give it audio. */
     private val bars: VisualizerLayer? = spectrum?.let { src ->
-        VisualizerLayer(context, src) { note.text = "No sound to show: this app keeps its audio to itself."; note.visibility = VISIBLE }
+        VisualizerLayer(context, src, cfg.visualizerStyle, onSilent = { note.text = "No sound to show: this app keeps its audio to itself."; note.visibility = VISIBLE }, glFactory = glFactory)
     }
 
     init {
@@ -268,8 +268,6 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         addView(backdrop, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(dim, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bars?.let { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
-        // The bars sit under the text, not through it: they may rise only as far as the content's bottom edge.
-        content.addOnLayoutChangeListener { _, _, _, _, bottom, _, _, _, _ -> bars?.ceiling = bottom }
         addView(note, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = context.dp(36f).toInt() })
         addView(content, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         addView(clock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -316,7 +314,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
                 if (now.art != null && !now.artIsIcon) {
                     art.setImageBitmap(now.art); art.scaleType = ImageView.ScaleType.CENTER_CROP
                     backdrop.setImageBitmap(softBackdrop(now.art))
-                    bars?.tint = lightTint(now.art)
+                    bars?.setTint(lightTint(now.art))
                 } else {
                     art.setImageResource(R.drawable.ic_music_note); art.scaleType = ImageView.ScaleType.CENTER_INSIDE
                     backdrop.setImageDrawable(null)

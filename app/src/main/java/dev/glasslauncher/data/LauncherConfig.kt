@@ -189,6 +189,8 @@ data class ScreensaverConfig(
     val nowPlayingCard: Boolean = false,
     /** The Now Playing saver shows a spectrum visualizer under the cover while music plays (P326). Needs audio access. */
     val visualizer: Boolean = false,
+    /** Which look the visualizer has (P334). */
+    val visualizerStyle: dev.glasslauncher.dream.viz.VisualizerStyle = dev.glasslauncher.dream.viz.VisualizerStyle.Bars,
 )
 
 @Serializable

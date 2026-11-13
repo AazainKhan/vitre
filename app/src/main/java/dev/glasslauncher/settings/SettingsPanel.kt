@@ -119,6 +119,8 @@ private sealed interface Page {
     data object ChoosePhotos : Page
     /** The baked ASCII screensaver pieces (P327): the categories, then a category's pieces. */
     data object AsciiPrefs : Page
+    /** Which look the Now Playing visualizer has (P334). */
+    data object VisualizerStyle : Page
     data object Widgets : Page
     data object HomeButton : Page
     data object Updates : Page
@@ -247,6 +249,7 @@ fun SettingsPanel(
                 Page.SlideshowPrefs -> SlideshowPrefsPage(model, cfg, f, ::push)
                 Page.ChoosePhotos -> ChoosePhotosPage(model, cfg, f)
                 Page.AsciiPrefs -> Unit
+                Page.VisualizerStyle -> VisualizerStylePage(model, cfg, f)
                 Page.ChooseAerials -> Unit
                 Page.Widgets -> WidgetsPage(model, cfg, f, open)
                 Page.HomeButton -> HomeButtonPage(model, cfg, f)
@@ -753,6 +756,8 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
         else if (audioGranted) model.edit { it.copy(screensaver = it.screensaver.copy(visualizer = true)) }
         else askAudio.launch(android.Manifest.permission.RECORD_AUDIO)
     }, help = "Bars that move with the music under the full-screen Now Playing. Needs audio access; an app that keeps its audio private shows none.")
+    MenuRow("Visualizer Style", { push(Page.VisualizerStyle) }, value = cfg.screensaver.visualizerStyle.label, chevron = true,
+        help = "How the visualizer looks: Bars, Scope, Bars and Waves, Feedback or Ribbons. It shows under the full-screen Now Playing while music plays.")
     MenuRow("Preview Now Playing", { AerialActivity.start(context, nowPlaying = true) },
         help = "The full-screen Now Playing screen saver: pick Now Playing as the current selection to use it.")
 }
@@ -959,6 +964,19 @@ private fun ColumnScope.SlideshowPrefsPage(model: HomeModel, cfg: LauncherConfig
     }, value = "${sc.photoSeconds} Seconds")
     ToggleRow("Pan and Zoom", sc.kenBurns, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(kenBurns = v)) } })
     MenuRow("Preview", { AerialActivity.start(context, slideshow = true) })
+}
+
+/** The visualizer looks. Select picks one and plays Now Playing so it can be seen at once (with music playing). */
+@Composable
+private fun ColumnScope.VisualizerStylePage(model: HomeModel, cfg: LauncherConfig, f: Modifier) {
+    val context = LocalContext.current
+    PanelTitle("Visualizer Style")
+    dev.glasslauncher.dream.viz.VisualizerStyle.entries.forEachIndexed { i, style ->
+        MenuRow(style.label, {
+            model.edit { it.copy(screensaver = it.screensaver.copy(visualizerStyle = style)) }
+            AerialActivity.start(context, nowPlaying = true)
+        }, if (i == 0) f else Modifier, value = if (cfg.screensaver.visualizerStyle == style) "✓" else null)
+    }
 }
 
 /**
