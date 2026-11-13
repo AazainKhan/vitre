@@ -183,6 +183,8 @@ data class ScreensaverConfig(
     val photoSeconds: Int = 8,
     /** Slideshow: a slow zoom and pan across each photo. */
     val kenBurns: Boolean = true,
+    /** ASCII: the baked piece's slug (P327); null until one is chosen. */
+    val asciiPiece: String? = null,
 )
 
 @Serializable
@@ -194,7 +196,7 @@ data class WeatherConfig(val city: String, val latitude: Double, val longitude: 
 fun appKey(pkg: String) = "app:$pkg"
 fun folderKey(id: String) = "folder:$id"
 
-enum class ScreensaverMode { Aerials, Slideshow, System }
+enum class ScreensaverMode { Aerials, Slideshow, Ascii, System }
 
 /** The interface typeface choices (Settings › Display & Text › Font). Inter is bundled; the others are the TV's own faces. */
 @kotlinx.serialization.Serializable

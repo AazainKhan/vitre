@@ -115,6 +115,9 @@ private sealed interface Page {
     data object ChooseAerials : Page
     data object SlideshowPrefs : Page
     data object ChoosePhotos : Page
+    /** The baked ASCII screensaver pieces (P327): the categories, then a category's pieces. */
+    data object AsciiPrefs : Page
+    data class AsciiCategory(val id: String, val name: String) : Page
     data object Widgets : Page
     data object HomeButton : Page
     data object Updates : Page
@@ -240,6 +243,8 @@ fun SettingsPanel(
                 Page.AerialsPrefs -> AerialsPrefsPage(model, cfg, f, ::push)
                 Page.SlideshowPrefs -> SlideshowPrefsPage(model, cfg, f, ::push)
                 Page.ChoosePhotos -> ChoosePhotosPage(model, cfg, f)
+                Page.AsciiPrefs -> AsciiPrefsPage(model, cfg, f, ::push)
+                is Page.AsciiCategory -> AsciiCategoryPage(model, cfg, page, f)
                 Page.ChooseAerials -> Unit
                 Page.Widgets -> WidgetsPage(model, cfg, f, open)
                 Page.HomeButton -> HomeButtonPage(model, cfg, f)
@@ -697,6 +702,7 @@ private fun ColumnScope.IconPackPage(model: HomeModel, cfg: LauncherConfig, f: M
 private fun screensaverName(mode: ScreensaverMode) = when (mode) {
     ScreensaverMode.Aerials -> "Aerials"
     ScreensaverMode.Slideshow -> "Slideshow"
+    ScreensaverMode.Ascii -> "ASCII Art"
     ScreensaverMode.System -> "Fire TV Screensaver"
 }
 
@@ -732,6 +738,7 @@ private fun ColumnScope.ScreensaverPage(model: HomeModel, cfg: LauncherConfig, f
     SectionLabel("Screen Saver Preferences")
     MenuRow("Aerials", { push(Page.AerialsPrefs) }, chevron = true)
     MenuRow("Slideshow", { push(Page.SlideshowPrefs) }, chevron = true)
+    MenuRow("ASCII Art", { push(Page.AsciiPrefs) }, chevron = true, value = cfg.screensaver.asciiPiece)
 }
 
 @Composable
@@ -936,6 +943,54 @@ private fun ColumnScope.SlideshowPrefsPage(model: HomeModel, cfg: LauncherConfig
     }, value = "${sc.photoSeconds} Seconds")
     ToggleRow("Pan and Zoom", sc.kenBurns, { v -> model.edit { it.copy(screensaver = it.screensaver.copy(kenBurns = v)) } })
     MenuRow("Preview", { AerialActivity.start(context, slideshow = true) })
+}
+
+/**
+ * The ASCII catalogue: fetched once (then cached), as categories. The first row is always there (it plays the chosen piece), so focus
+ * has a row to land on while the catalogue loads; without the network the first time, a row says so.
+ */
+@Composable
+private fun ColumnScope.AsciiPrefsPage(model: HomeModel, cfg: LauncherConfig, f: Modifier, push: (Page) -> Unit) {
+    val context = LocalContext.current
+    var tries by remember { mutableStateOf(0) }
+    var failed by remember { mutableStateOf(false) }
+    val index by androidx.compose.runtime.produceState<dev.glasslauncher.dream.AsciiIndex?>(dev.glasslauncher.dream.AsciiPacks.cachedIndex(context), tries) {
+        failed = false
+        value = dev.glasslauncher.dream.AsciiPacks.index(context, refresh = tries > 0 && value == null).also { failed = it == null }
+    }
+    PanelTitle("ASCII Art")
+    val chosen = cfg.screensaver.asciiPiece
+    val chosenName = chosen?.let { slug -> index?.pieces?.firstOrNull { it.slug == slug }?.name ?: slug }
+    MenuRow("Play Selected", { chosen?.let { AerialActivity.start(context, asciiSlug = it) } }, f, enabled = chosen != null, value = chosenName ?: "None",
+        help = "Pick a piece below, then it plays as the screen saver when ASCII Art is the current selection.")
+    val idx = index
+    if (idx == null) {
+        if (failed) MenuRow("Try Again", { tries++ }, help = "Couldn't reach VITRE's release page. The pieces are fetched once, then kept on this TV.")
+        else MenuRow("Loading…", {}, enabled = false)
+        return
+    }
+    SectionLabel("Categories")
+    idx.categories.filter { it.pieces > 0 }.forEach { c ->
+        MenuRow(c.name, { push(Page.AsciiCategory(c.id, c.name)) }, value = "${c.pieces}", chevron = true, help = c.blurb.ifBlank { null })
+    }
+}
+
+/** One category's pieces. Select picks the piece for the screensaver and plays it; any key stops the preview. */
+@Composable
+private fun ColumnScope.AsciiCategoryPage(model: HomeModel, cfg: LauncherConfig, page: Page.AsciiCategory, f: Modifier) {
+    val context = LocalContext.current
+    // Read at once, not fetched: this page opens from the categories, which already cached it, and its first row must exist for focus to land on.
+    val index = remember { dev.glasslauncher.dream.AsciiPacks.cachedIndex(context) }
+    PanelTitle(page.name)
+    val pieces = index?.pieces?.filter { it.category == page.id }.orEmpty()
+    if (pieces.isEmpty()) MenuRow("Nothing here yet", {}, f, enabled = false)
+    pieces.forEachIndexed { i, p ->
+        MenuRow(p.name, {
+            model.edit { it.copy(screensaverMode = dev.glasslauncher.data.ScreensaverMode.Ascii, screensaver = it.screensaver.copy(asciiPiece = p.slug)) }
+            AerialActivity.start(context, asciiSlug = p.slug)
+        }, if (i == 0) f else Modifier, value = if (cfg.screensaver.asciiPiece == p.slug) "✓" else null,
+            help = p.note.ifBlank { "${p.cols} by ${p.rows} cells, ${p.fps} frames a second." })
+    }
 }
 
 @Composable
