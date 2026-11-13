@@ -176,6 +176,8 @@ object NowPlayingSource {
             // The cover is cached per track AND uri (P324): some apps keep one uri whose bytes change with the track, and a
             // uri-only key kept the first cover for good. [waitMs] gives such a provider time to switch before it is read.
             var lastUri: String? = null
+            var lastPick: ArtPick.Pick<Bitmap>? = null
+            var lastPickInputs: List<Any?>? = null
             var lastUriTrack: String? = null
             fun fetchArt(uri: String, key: String, pkg: String, waitMs: Long) {
                 if (!inflight.add(key)) return
@@ -204,11 +206,16 @@ object NowPlayingSource {
                 val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
                 if (c == null || meta == null || title == null) { trySend(null); return }
                 val track = "${c.packageName}|$title|${meta.getString(MediaMetadata.METADATA_KEY_ARTIST)}|${meta.getString(MediaMetadata.METADATA_KEY_ALBUM)}"
-                val pick = ArtPick.pick(
-                    meta.getBitmap(MediaMetadata.METADATA_KEY_ART), meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART), meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON),
-                    meta.getString(MediaMetadata.METADATA_KEY_ART_URI), meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI), meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
-                )
-                android.util.Log.i("GlassNowPlaying", "pick uri=${pick.uri != null} bitmap=${pick.bitmap != null} icon=${pick.isIcon}")
+                // Every playback tick and metadata callback lands here; the pick depends only on these inputs, so it is made once per change.
+                val artBitmap = meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                val albumBitmap = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                val iconBitmap = meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+                val artUri = meta.getString(MediaMetadata.METADATA_KEY_ART_URI)
+                val albumUri = meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+                val iconUri = meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+                val inputs = listOf(track, artUri, albumUri, iconUri, System.identityHashCode(artBitmap), System.identityHashCode(albumBitmap), System.identityHashCode(iconBitmap))
+                val pick = lastPick?.takeIf { lastPickInputs == inputs }
+                    ?: ArtPick.pick(artBitmap, albumBitmap, iconBitmap, artUri, albumUri, iconUri).also { lastPick = it; lastPickInputs = inputs }
                 var artIsIcon = pick.isIcon
                 val shownArt: Bitmap?
                 if (pick.uri != null) {
