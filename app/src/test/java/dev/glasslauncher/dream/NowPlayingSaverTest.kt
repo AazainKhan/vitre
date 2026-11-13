@@ -70,6 +70,28 @@ class NowPlayingSaverTest {
         saver.stop()
     }
 
+    /**
+     * Yin's stick check: a player sends a burst of updates around a track change. The second one (same track) must not undo the swap to it;
+     * the saver used to stay on the old title because the repeat restarted the fade and dropped the swap.
+     */
+    @Test fun aBurstOfUpdatesAroundATrackChangeStillShowsTheNewTrack() {
+        val state = MutableStateFlow<NowPlaying?>(np(playing = true, title = "Old Song"))
+        NowPlayingFixture.state = state
+        val saver = NowPlayingSaverView(context, ScreensaverConfig())
+        saver.start(); settle()
+        assertTrue(texts(saver).contains("Old Song"))
+        val next = np(playing = true, title = "New Song")
+        state.value = next
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(50, TimeUnit.MILLISECONDS)
+        state.value = next.copy(positionMs = 1_000)          // the repeat, mid-fade
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(30, TimeUnit.MILLISECONDS)
+        state.value = next.copy(positionMs = 2_000)
+        settle()
+        assertTrue("the new track is on screen (${texts(saver)})", texts(saver).contains("New Song"))
+        assertTrue("and the old one is gone", !texts(saver).contains("Old Song"))
+        saver.stop()
+    }
+
     /** P326 review: a hard-edged cover (a bright disc on a dark field) must blur into a gradient, not stair-steps. */
     @Test fun theBackdropIsASmoothBlurOfTheCover() {
         val disc = android.graphics.Bitmap.createBitmap(512, 512, android.graphics.Bitmap.Config.ARGB_8888).also {

@@ -190,6 +190,9 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     }
     private val clock = TextClock(context).apply { setTextColor(Color.argb(150, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 64f); format12Hour = "h:mm"; format24Hour = "H:mm"; gravity = Gravity.CENTER; visibility = GONE }
     private var np: NowPlaying? = null
+    private var shownKey: String? = null
+    private var shownArt: Bitmap? = null
+    private var pendingSwap: Runnable? = null
     private val tick = object : Runnable {
         override fun run() { np?.let { progress.fraction = progressOf(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
     }
@@ -209,7 +212,10 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         addView(clock, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
     }
 
-    override fun start() { scope.launch { context.nowPlayingFlow().collect { show(it) } } }
+    override fun start() {
+        // One bad update must not end the collection (the saver would freeze on the old track): it is logged and the next one is shown.
+        scope.launch { context.nowPlayingFlow().collect { n -> runCatching { show(n) }.onFailure { android.util.Log.w("VitreNowPlaying", "could not show ${n?.key}", it) } } }
+    }
 
     override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt() }
 
@@ -221,25 +227,32 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         if (n?.playing == true) bars?.run() else { bars?.halt(); note.visibility = GONE }
         if (n == null) {
             content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.visibility = VISIBLE
+            shownKey = null; shownArt = null
             return
         }
         clock.visibility = GONE; content.visibility = VISIBLE; backdrop.visibility = VISIBLE; dim.visibility = VISIBLE
-        if (was?.key != n.key || was.art !== n.art) {
-            // A track change dissolves: the content fades out, is swapped, and fades back in.
+        if (shownKey != n.key || shownArt !== n.art) {
+            // A track change dissolves: the content fades out, is swapped, and fades back in. The swap is its own delayed task, not the end
+            // action of the fade: a player sends a burst of updates around a change, and each one used to restart the fade and drop the swap.
+            shownKey = n.key; shownArt = n.art
+            pendingSwap?.let { handler.removeCallbacks(it) }
             val swap = Runnable {
-                title.text = n.title; artist.text = n.artist.orEmpty()
-                if (n.art != null && !n.artIsIcon) {
-                    art.setImageBitmap(n.art); art.scaleType = ImageView.ScaleType.CENTER_CROP
-                    backdrop.setImageBitmap(softBackdrop(n.art))
-                    bars?.tint = lightTint(n.art)
+                pendingSwap = null
+                val now = np ?: return@Runnable
+                title.text = now.title; artist.text = now.artist.orEmpty()
+                if (now.art != null && !now.artIsIcon) {
+                    art.setImageBitmap(now.art); art.scaleType = ImageView.ScaleType.CENTER_CROP
+                    backdrop.setImageBitmap(softBackdrop(now.art))
+                    bars?.tint = lightTint(now.art)
                 } else {
                     art.setImageResource(R.drawable.ic_music_note); art.scaleType = ImageView.ScaleType.CENTER_INSIDE
                     backdrop.setImageDrawable(null)
                 }
-                content.animate().alpha(if (n.playing) 1f else 0.6f).setDuration(250).start()
+                content.animate().alpha(if (now.playing) 1f else 0.6f).setDuration(250).start()
             }
-            if (was == null) { content.alpha = 0f; swap.run() } else content.animate().alpha(0f).setDuration(200).withEndAction(swap).start()
-        } else content.animate().alpha(if (n.playing) 1f else 0.6f).setDuration(250).start()
+            pendingSwap = swap
+            if (was == null) { content.alpha = 0f; swap.run() } else { content.animate().alpha(0f).setDuration(200).start(); handler.postDelayed(swap, 200) }
+        } else if (pendingSwap == null) content.animate().alpha(if (n.playing) 1f else 0.6f).setDuration(250).start()
         progress.fraction = progressOf(n)
         if (n.playing) handler.postDelayed(tick, 1000)
     }
