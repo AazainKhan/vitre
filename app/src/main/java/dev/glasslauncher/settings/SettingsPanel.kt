@@ -341,7 +341,7 @@ private fun ColumnScope.RootPage(model: HomeModel, cfg: LauncherConfig, f: Modif
     // Only on rooted devices (su present and granted).
     val rooted by androidx.compose.runtime.produceState(dev.glasslauncher.system.Root.known) { value = dev.glasslauncher.system.Root.available() }
     MenuRow("Root", { push(Page.RootTools) }, value = if (rooted) "Detected" else "Not detected", chevron = true)
-    MenuRow("Updates", { push(Page.Updates) }, value = BuildConfig.VERSION_NAME, chevron = true)
+    MenuRow("Updates", { push(Page.Updates) }, value = dev.glasslauncher.system.UpdateCheck.available(context)?.let { "$it available" } ?: BuildConfig.VERSION_NAME, chevron = true)
     MenuRow("Downloads", { push(Page.Downloads) }, chevron = true)
     val airPlay = dev.glasslauncher.system.AirPlay.rememberAirPlay(true).first
     MenuRow("AirPlay", { push(Page.AirPlay) }, value = airPlayRowValue(airPlay).ifEmpty { null }, chevron = true)

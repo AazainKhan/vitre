@@ -853,6 +853,7 @@ fun HomeScreen(model: HomeModel, homePresses: Flow<HomeRequest>) {
             launch { while (true) { delay(dev.glasslauncher.featured.FeaturedRepository.TV_MAX_AGE_MS); reread() } }
         }
     }
+    UpdateWatch(idle, homeVisible, takeover != null)
     LaunchedEffect(homeVisible, homeScene) { ControlCenterWindow.homeBackdrop = homeScene.takeIf { homeVisible } }
     // The effect above can't run once an app hides Home (no frames), so the lifecycle clears it on STOP.
     val latestScene = androidx.compose.runtime.rememberUpdatedState(homeScene)

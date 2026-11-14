@@ -18,7 +18,7 @@ import okhttp3.Request
 import java.io.File
 
 /** [sha256] is GitHub's asset digest when it publishes one. */
-data class Release(val version: String, val apkUrl: String, val notes: String, val sha256: String? = null)
+data class Release(val version: String, val apkUrl: String, val notes: String, val sha256: String? = null, val size: Long? = null)
 
 /** In-app updates from GitHub Releases, installed through the system PackageInstaller. */
 object Updater {
@@ -36,7 +36,7 @@ object Updater {
                 ?.firstOrNull { it["name"]?.jsonPrimitive?.content?.endsWith(".apk") == true } ?: return@withContext null
             val apk = asset["browser_download_url"]?.jsonPrimitive?.content ?: return@withContext null
             val digest = digestOf(asset)
-            Release(o["tag_name"]!!.jsonPrimitive.content.removePrefix("v"), apk, o["body"]?.jsonPrimitive?.content.orEmpty(), digest)
+            Release(o["tag_name"]!!.jsonPrimitive.content.removePrefix("v"), apk, o["body"]?.jsonPrimitive?.content.orEmpty(), digest, asset["size"]?.jsonPrimitive?.content?.toLongOrNull())
         }
     }
 
@@ -86,7 +86,9 @@ object Updater {
         }
         val staged = withContext(Dispatchers.IO) { StagedApk.adopt(context, file) } ?: throw IllegalStateException("The download isn't a valid APK")
         try {
+            check(UpdateCheck.sizeOk(release.size, staged.file.length())) { "The download is not the size GitHub lists" }
             check(digestOk(release.sha256, staged.sha256)) { "The download doesn't match GitHub's checksum" }
+            check(UpdateCheck.signerMatches(context, staged.file)) { "The download is not signed with VITRE's key" }
             check(withContext(Dispatchers.IO) { StagedApk.hash(staged.file) } == staged.sha256) { "The download changed before it was installed" }
             // Fire and forget as before: the receiver opens the system card if one is needed.
             (ApkInstall.commit(context, staged.file, userAction = false, await = false) as? InstallResult.Failed)?.let { throw IllegalStateException(it.reason) }
