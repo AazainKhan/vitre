@@ -526,6 +526,12 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
             MenuRow("API Key", {
                 open(Overlay.TextInput("TMDB API Key", fc.tmdbKey, "Free at themoviedb.org → Settings → API. Either the v3 key or the read access token works.") { k -> setFeatured { it.copy(tmdbKey = k) } })
             }, value = mask(fc.tmdbKey))
+            // A long key is easier to paste on a phone than to type with a remote: the same QR page as Set Up from Phone, with only this field.
+            MenuRow("Enter Key on Phone", {
+                open(Overlay.PhoneSetup("TMDB Key", listOf(PhoneField("tmdb", "TMDB API key or read token", fc.tmdbKey, "Free at themoviedb.org → Settings → API", secret = true))) { v ->
+                    v["tmdb"]?.takeIf { it.isNotBlank() }?.let { k -> setFeatured { it.copy(tmdbKey = k.trim()) } }
+                })
+            }, help = "Scan the code with your phone and paste the key there.")
             MenuRow("Region", {
                 open(Overlay.TextInput("Region (2-letter country code)", fc.tmdbRegion) { r -> setFeatured { it.copy(tmdbRegion = r.uppercase().take(2)) } })
             }, value = fc.tmdbRegion)
