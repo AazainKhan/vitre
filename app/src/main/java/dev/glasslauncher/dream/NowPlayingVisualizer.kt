@@ -99,6 +99,9 @@ class VisualizerLayer(
     private var running = false
     private var quietSince = 0L
     private var told = false
+    private var lastData = 0L
+    private var lastRestart = 0L
+    private var restarts = 0
     private var tintColor = Color.WHITE
     val usingGpu get() = gl != null
 
@@ -113,14 +116,36 @@ class VisualizerLayer(
     fun run(): Boolean {
         if (running) return true
         quietSince = SystemClock.uptimeMillis(); told = false
+        lastData = quietSince; lastRestart = quietSince; restarts = 0
         analysis.clear()
         show()
         running = source.start { data -> main.post { onData(data) } }
-        if (!running) hide()
+        if (!running) hide() else main.postDelayed(watch, WATCH_MS)
         return running
     }
 
+    /**
+     * While music plays the capture can go silent on its own (the stick showed all-zero audio about 20 s in, for up to a minute, with the
+     * session still playing). A capture that has been all zeros, or gave nothing, for [STALL_MS] is released and created again, at most once
+     * every 3 s (every 30 s after six tries with no sound, so a track that really is silent costs nothing). It logs under VitreViz.
+     */
+    private val watch = object : Runnable {
+        override fun run() {
+            if (!running) return
+            val now = SystemClock.uptimeMillis()
+            val silentFor = now - quietSince
+            if ((silentFor >= STALL_MS || now - lastData >= STALL_MS) && now - lastRestart >= if (restarts < 6) 3_000L else 30_000L) {
+                lastRestart = now; restarts++
+                android.util.Log.i("VitreViz", "capture silent for $silentFor ms (no data for ${now - lastData} ms) while music plays: re-creating the Visualizer (#$restarts)")
+                source.stop()
+                if (!source.start { data -> main.post { onData(data) } }) android.util.Log.w("VitreViz", "the Visualizer would not start again")
+            }
+            main.postDelayed(this, WATCH_MS)
+        }
+    }
+
     fun halt() {
+        main.removeCallbacks(watch)
         if (!running) return
         running = false
         source.stop()
@@ -154,11 +179,12 @@ class VisualizerLayer(
         (gl as? VizGlView)?.push(analysis)
         canvasBars?.invalidate()
         val now = SystemClock.uptimeMillis()
-        if (analysis.signal) quietSince = now
+        lastData = now
+        if (analysis.signal) { quietSince = now; restarts = 0 }
         else if (!told && now - quietSince > SILENT_MS) { told = true; onSilent() }
     }
 
     override fun onDetachedFromWindow() { halt(); super.onDetachedFromWindow() }
 
-    companion object { const val SILENT_MS = 6_000L }
+    companion object { const val SILENT_MS = 6_000L; const val STALL_MS = 1_500L; private const val WATCH_MS = 500L }
 }

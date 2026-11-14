@@ -118,6 +118,21 @@ class NowPlayingVisualizerTest {
         assertEquals(0, layer.childCount)
     }
 
+    @Test fun aCaptureThatGoesSilentWhileMusicPlaysIsCreatedAgain() {
+        val src = FakeSource()
+        val layer = VisualizerLayer(context, src, glFactory = null)
+        layer.run(); assertEquals(1, src.starts)
+        // sound: nothing to fix
+        src.push!!.invoke(data(fft(fromBin = 0, toBin = 64, magnitude = 90))); idle(1000)
+        assertEquals("sound keeps the capture as it is", 1, src.starts)
+        // then the capture keeps answering with zeros (what the stick did about 20 s in)
+        repeat(8) { src.push!!.invoke(data(fft())); idle(500) }
+        assertTrue("all-zero for over 1.5 s: the Visualizer is created again", src.starts >= 2)
+        assertTrue("but not in a storm: at most every 3 s", src.starts <= 3)
+        src.push!!.invoke(data(fft(fromBin = 0, toBin = 64, magnitude = 90))); idle(100)
+        layer.halt()
+    }
+
     @Test fun withNoGpuTheCanvasBarsRunAndSilenceIsReportedOnce() {
         val src = FakeSource(); var told = 0
         val layer = VisualizerLayer(context, src, onSilent = { told++ }, glFactory = null)
