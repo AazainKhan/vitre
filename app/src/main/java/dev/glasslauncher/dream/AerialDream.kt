@@ -110,6 +110,7 @@ class AerialActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        note("onStart")
         view?.start()
         // Keep the screen on only until the TV's own sleep timeout, so Aerials never stop it sleeping; with no
         // timeout ("never": sleep_timeout <= 0) they run until a key is pressed.
@@ -117,7 +118,16 @@ class AerialActivity : Activity() {
         Screensaver.keepAwakeMs(timeout)?.let { window.decorView.postDelayed(sleepAfter, it) }
     }
 
+    // The saver's lifecycle, for the visualizer's "surface hidden" hunt: a stop, a pause, a lost focus or a new intent shows here with the time.
+    private fun note(what: String) = android.util.Log.i("VitreViz", "AerialActivity@${System.identityHashCode(this)} $what")
+    override fun onResume() { super.onResume(); note("onResume") }
+    override fun onPause() { note("onPause"); super.onPause() }
+    override fun onDestroy() { note("onDestroy"); super.onDestroy() }
+    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); note("onNewIntent") }
+    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); note("window focus -> $hasFocus") }
+
     override fun onStop() {
+        note("onStop")
         window.decorView.removeCallbacks(sleepAfter)
         view?.stop()
         super.onStop()

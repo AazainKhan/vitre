@@ -145,7 +145,7 @@ class VisualizerLayer(
             val silentFor = now - quietSince
             if (now - lastStats >= STATS_MS) {
                 lastStats = now
-                android.util.Log.i("VitreViz", "capture: signal=${analysis.signal} maxMag=${analysis.maxMagnitude} top=${analysis.topBand} loudest=${analysis.loudestBand} gain=${analysis.scale} quietFor=${silentFor}ms dataAge=${now - lastData}ms restarts=$restarts")
+                android.util.Log.i("VitreViz", "capture: signal=${analysis.signal} maxMag=${analysis.maxMagnitude} top=${analysis.topBand} loudest=${analysis.loudestBand} gain=${analysis.scale} quietFor=${silentFor}ms dataAge=${now - lastData}ms restarts=$restarts view=${(gl as? VizGlView)?.chain(gl!!) ?: "none"}")
             }
             if ((silentFor >= STALL_MS || now - lastData >= STALL_MS) && now - lastRestart >= if (restarts < 6) 3_000L else 30_000L) {
                 lastRestart = now; restarts++

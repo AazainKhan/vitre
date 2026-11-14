@@ -5,6 +5,7 @@ import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.os.SystemClock
 import android.view.Choreographer
+import android.view.View
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
@@ -43,6 +44,22 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         setRenderer(renderer)
         renderMode = RENDERMODE_WHEN_DIRTY
         holder.setFixedSize(W, H)
+    }
+
+    // Why was the surface hidden? (the stick hid it about 20 s in while the capture and the GL thread were healthy): who changed what, and from where.
+    private fun why(what: String) = android.util.Log.i("VitreViz", "$what | ${chain(this)}", Throwable())
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (changedView !== this || visibility != VISIBLE) why("visibility of ${changedView.javaClass.simpleName} -> $visibility")
+    }
+    override fun onWindowVisibilityChanged(visibility: Int) { super.onWindowVisibilityChanged(visibility); why("window visibility -> $visibility") }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); android.util.Log.i("VitreViz", "attached | ${chain(this)}") }
+    override fun onDetachedFromWindow() { why("detached"); super.onDetachedFromWindow() }
+
+    /** The view and its ancestors as "Class vis= alpha= WxH shown= tx=": the one line that names who hid it. */
+    internal fun chain(from: View): String = generateSequence(from) { it.parent as? View }.joinToString(" < ") {
+        "${it.javaClass.simpleName}(vis=${it.visibility} a=${"%.2f".format(it.alpha)} ${it.width}x${it.height} shown=${it.isShown} tx=${it.translationX.toInt()},${it.translationY.toInt()})"
     }
 
     /** The latest audio (the 256 x 3 image and the energies), read by the next frame. */
