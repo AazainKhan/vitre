@@ -10,6 +10,10 @@ the header of the script first; this is the short version.
   (`cmd package install-existing --user 0`) as the stock stand-in, and the restore disables it and uninstalls it again (`pm uninstall -k --user 0`,
   data kept), then checks installed=false. The home starter (`com.amazon.firehomestarter`) is never touched: its state is recorded first and
   verified unchanged at the end, so no setup or remote-pairing screen can start.
+- Making the launcher the home needs care: `install-existing` alone left `set-home-activity` answering "Failed to set default home" on the stick, so
+  the script lists the HOME candidates (saved to `reports/noroot-home/home-candidates.txt`), uses the exact component listed for the launcher, sets it,
+  reads who answers HOME, starts the launcher once if that is not Amazon's, and retries. If it never becomes the home, the run says so and the
+  set-home half of probe A is marked as proving nothing (the disable-user half still does).
 - Scope on this stick: `ro.adb.secure=0` and there is no `adb_keys`, so it never shows "Allow USB debugging?" and adbd accepts any client with
   no signature. `probe` (Fire OS 8's policy for the plain shell user) is what this stick can prove. `run` also exercises the app's engine over
   loopback, but the prompt and signature path of SelfAdb is not proven here (the emulator covers it): **Fire prompt path unverified**.

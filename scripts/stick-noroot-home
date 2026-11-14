@@ -98,6 +98,29 @@ remove_app_key() {
 }
 KEY_REMOVED=1
 
+# Make Amazon's launcher the HOME activity (as root), the way Android wants it named: install-existing alone left `set-home-activity` answering
+# "Failed to set default home" on the stick (P341 probe). So: list the HOME candidates, take the exact component listed for the launcher, set it,
+# and read who answers HOME; if that is not Amazon's, start the launcher once (a component that has never run can be refused) and retry. Returns 0 when
+# HOME resolves to the launcher; 1 (with what it saw printed and saved) when it never does.
+make_amazon_home() {
+  local c n out
+  mkdir -p "$OUT"
+  su "cmd package query-activities --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME" | tee "$OUT/home-candidates.txt" | sed 's/^/    candidates: /'
+  su "cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ${STOCK[0]}" | tee "$OUT/home-resolve-launcher.txt" | sed 's/^/    resolve: /'
+  c="$(sed 's/^[[:space:]]*//' "$OUT/home-candidates.txt" | grep -m1 "^${STOCK[0]}/" | tr -d '[:space:]')"   # the listing indents the component under "Activity #n:"
+  [ -n "$c" ] || c="$(tail -n 1 "$OUT/home-resolve-launcher.txt" | tr -d '[:space:]')"
+  case "$c" in ${STOCK[0]}/*) ;; *) say "    the launcher lists no HOME activity (got '$c'): it cannot be made the home here"; return 1 ;; esac
+  say "    the launcher's HOME component: $c"
+  for n in 1 2 3 4 5; do
+    out="$(su "cmd package set-home-activity $c" 2>&1 | tr '\n' ' ')"
+    sleep 1
+    say "    try $n: set-home-activity said: $out; HOME is now $(home_now)"
+    case "$(home_now)" in ${STOCK[0]}/*) return 0 ;; esac
+    [ "$n" = 2 ] && { say "    starting the launcher once, then retrying"; su "am start -n $c" >/dev/null 2>&1; sleep 2; }
+  done
+  return 1
+}
+
 restore() {
   trap - EXIT INT TERM HUP
   say "== restore (rooted setup)"
@@ -143,14 +166,14 @@ fi
 
 say "== 1. make the stick look stock: Amazon's launcher back for user 0 and the default home (a stand-in for a Fire that was never rooted)"
 act "bring back ONLY ${STOCK[0]} for user 0 (cmd package install-existing, as root, then enable; the home starter is never touched, so no setup or remote-pairing screen can start)" su "cmd package install-existing --user 0 ${STOCK[0]}; pm enable ${STOCK[0]}"
-act "make Amazon's launcher the HOME activity (as root)" su "c=\$(cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ${STOCK[0]} | tail -n 1); cmd package set-home-activity \$c"
-[ "$DRY" = 1 ] || { sleep 2; say "  HOME is now: $(home_now)  (expected com.amazon.tv.launcher/...)"; }
+act "make Amazon's launcher the HOME activity: list the HOME candidates, use the exact component, retry (as root)" make_amazon_home
+[ "$DRY" = 1 ] || { case "$(home_now)" in ${STOCK[0]}/*) ;; *) say "  !! the Amazon launcher is NOT the home: the set-home part of probe A below proves nothing (the disable-user part still does)" ;; esac; }
 
 say "== 2. probe A, what the plain shell user may do to Amazon's launcher (no app, no su)"
 act "as the shell user: pm disable-user --user 0 ${STOCK[0]}  -> read the answer" bash -c "adb -s '$ANDROID_SERIAL' shell 'pm disable-user --user 0 ${STOCK[0]}' 2>&1 | tr -d '\r' | tee '$OUT/shell-disable.txt'"
 act "put it back at once if it was accepted (as root)" su "pm enable ${STOCK[0]}"
 act "as the shell user: cmd package set-home-activity $HOME_ACT, then read who answers HOME (does Success mean it took?)" bash -c "adb -s '$ANDROID_SERIAL' shell 'cmd package set-home-activity $HOME_ACT' 2>&1 | tr -d '\r' | tee '$OUT/shell-sethome.txt'; adb -s '$ANDROID_SERIAL' shell 'cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1' | tr -d '\r' | tee '$OUT/shell-home-after.txt'"
-act "make Amazon's launcher the HOME activity again, so the app's switch starts from a stock-like state (as root)" su "c=\$(cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ${STOCK[0]} | tail -n 1); cmd package set-home-activity \$c"
+act "make Amazon's launcher the HOME activity again, so the app's switch starts from a stock-like state (as root)" make_amazon_home
 say "  READ: shell-disable.txt = 'disabled-user' means Fire lets the shell user turn its launcher off (the app's main path works);"
 say "        an exception (SecurityException, 'Shell cannot change component state') means Fire refuses and the app must use the Home guard."
 say "        shell-sethome.txt 'Success' with shell-home-after.txt still Amazon's = Success that changed nothing (the engine's post-check catches it)."
