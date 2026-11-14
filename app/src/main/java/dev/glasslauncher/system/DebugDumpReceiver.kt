@@ -20,6 +20,31 @@ class DebugDumpReceiver : BroadcastReceiver() {
             app.scope.launch { try { app.config.update { it.copy(theme = mode) } } finally { done.finish() } }
             return
         }
+        // The screensaver for scripts/stickcheck, release builds too (the DUMP permission already limits this to adb/root):
+        // `--es saver Aerials|Slideshow|Ascii|NowPlaying|System --ez viz true --es viz_style Spectrum`; each extra is optional.
+        if (intent.hasExtra("saver") || intent.hasExtra("viz") || intent.hasExtra("viz_style")) {
+            val mode = intent.getStringExtra("saver")?.let { s -> dev.glasslauncher.data.ScreensaverMode.entries.firstOrNull { it.name.equals(s, true) } }
+            val style = intent.getStringExtra("viz_style")?.let { s -> dev.glasslauncher.dream.viz.VisualizerStyle.entries.firstOrNull { it.name.equals(s, true) } }
+            val viz = if (intent.hasExtra("viz")) intent.getBooleanExtra("viz", false) else null
+            val app = context.applicationContext as dev.glasslauncher.GlassApp
+            val done = goAsync()
+            app.scope.launch {
+                try {
+                    var now = ""
+                    app.config.update { c ->
+                        c.copy(
+                            screensaverMode = mode ?: c.screensaverMode,
+                            screensaver = c.screensaver.copy(
+                                visualizer = viz ?: c.screensaver.visualizer,
+                                visualizerStyle = style ?: c.screensaver.visualizerStyle,
+                            ),
+                        ).also { n -> now = "saver=${n.screensaverMode} viz=${n.screensaver.visualizer} style=${n.screensaver.visualizerStyle}" }
+                    }
+                    done.resultData = now
+                } finally { done.finish() }
+            }
+            return
+        }
         // A device's page for the device tests: `--es open_device gamepad:Xbox` (or remote:Name) opens Settings on it.
         intent.getStringExtra("open_device")?.let { spec ->
             val kind = if (spec.startsWith("remote:")) dev.glasslauncher.home.PageKind.Remote else dev.glasslauncher.home.PageKind.Gamepad
