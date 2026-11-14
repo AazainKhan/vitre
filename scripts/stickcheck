@@ -397,7 +397,9 @@ def main():
     try:
         if apk:
             out = sh(f"adb install -r {json.dumps(apk)}", 180)
-            res.check("install", "Success" in out, out=out.strip()[-120:])
+            res.check("install", "Success" in out, out=out.strip()[-160:])
+            if "Success" not in out:  # e.g. Fire refuses a downgrade: measuring the old build would be a silent lie
+                recipes = []
         vc = re.search(r"versionCode=(\d+)", adb(f"dumpsys package {PKG}"))
         adb(f"cmd notification allow_listener {LISTENER}")
         res.check("setup/keys-service", keys_service_ok())
