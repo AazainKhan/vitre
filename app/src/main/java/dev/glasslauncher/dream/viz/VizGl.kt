@@ -195,7 +195,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         /** A slowly drifting colour (the shaders' hue() in turns of 1/20pi, at a breathing level of 4 to 16 %), added to every pixel in the blit: silence is never black. */
         private fun floor(flow: Float) {
             val t = flow / FLOW_PERIOD * 2f   // two turns of hue per wrap of the flow counter, so the wrap is unseen
-            val level = 0.10f + 0.06f * kotlin.math.sin(flow * 0.6f)   // 0.6 x the wrap is 6 whole turns of sine
+            val level = 0.17f + 0.08f * kotlin.math.sin(flow * 0.6f)   // 9 to 25 %: clearly a colour, not black; 0.6 x the wrap is 6 whole turns of sine
             for (i in 0..2) {
                 val f = (((t + i / 3f) % 1f) + 1f) % 1f
                 floorRgb[i] = (kotlin.math.abs(f * 6f - 3f) - 1f).coerceIn(0f, 1f) * level

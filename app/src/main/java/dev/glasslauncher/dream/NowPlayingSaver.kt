@@ -265,6 +265,9 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     private val tick = object : Runnable {
         override fun run() { np?.let { showProgress(it) }; if (np?.playing == true) handler.postDelayed(this, 1000) }
     }
+    /** A paused screen is not black: once the GL view is gone (no frames, no GPU) this one still View shows a soft glow of the cover's colour. */
+    private val pauseFloor = View(context).apply { visibility = GONE }
+    private var lastTint = Color.WHITE
     private val note = TextView(context).apply { setTextColor(Color.argb(170, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER; visibility = GONE }
     /** With the visualizer on it owns the screen: no centred cover, no seek bar. The track is a small corner card for a few seconds on a change. */
     private val visualizerMode = spectrum != null
@@ -278,6 +281,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         setBackgroundColor(Color.BLACK)
         addView(backdrop, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(dim, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addView(pauseFloor, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bars?.let { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
         infoCard?.let { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
         addView(note, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = context.dp(36f).toInt() })
@@ -304,7 +308,14 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt(); infoCard?.stop(); clock.shown(false); cornerClock.shown(false) }
 
     private val HALT_DELAY_MS = 2_000L
-    private val haltBars = Runnable { bars?.halt(); note.visibility = GONE }
+    private val haltBars = Runnable {
+        bars?.halt(); note.visibility = GONE
+        pauseFloor.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.argb(46, Color.red(lastTint), Color.green(lastTint), Color.blue(lastTint)), Color.argb(14, Color.red(lastTint), Color.green(lastTint), Color.blue(lastTint)))).apply {
+            gradientType = GradientDrawable.RADIAL_GRADIENT; gradientRadius = context.resources.displayMetrics.widthPixels * 0.6f
+            setGradientCenter(0.5f, 0.5f)
+        }
+        pauseFloor.visibility = VISIBLE
+    }
 
     private fun show(n: NowPlaying?) {
         val was = np
@@ -315,6 +326,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         // state must not black the screen (the view is rebuilt, which takes a moment on the stick).
         handler.removeCallbacks(haltBars)
         bars?.sounding = n?.sounding == true
+        if (n?.sounding == true) pauseFloor.visibility = GONE
         if (n?.sounding == true) bars?.run() else handler.postDelayed(haltBars, HALT_DELAY_MS)
         if (n == null) {
             content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.shown(true); cornerClock.shown(false)
@@ -326,7 +338,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
             clock.shown(false); cornerClock.shown(cfg.showClock); content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE
             if (shownKey != n.key || shownArt !== n.art) {
                 shownKey = n.key; shownArt = n.art
-                n.art?.takeIf { !n.artIsIcon }?.let { bars?.setTint(lightTint(it)) }
+                n.art?.takeIf { !n.artIsIcon }?.let { lastTint = lightTint(it); bars?.setTint(lastTint) }
             }
             return
         }

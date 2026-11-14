@@ -48,10 +48,12 @@ class AerialDreamService : DreamService() {
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
+        app.ownScreenUp(true)
         view?.start()
     }
 
     override fun onDreamingStopped() {
+        app.ownScreenUp(false)
         view?.stop()
         super.onDreamingStopped()
     }
@@ -111,6 +113,7 @@ class AerialActivity : Activity() {
     override fun onStart() {
         super.onStart()
         note("onStart")
+        app.ownScreenUp(true)
         view?.start()
         // Keep the screen on only until the TV's own sleep timeout, so Aerials never stop it sleeping; with no
         // timeout ("never": sleep_timeout <= 0) they run until a key is pressed.
@@ -128,6 +131,7 @@ class AerialActivity : Activity() {
 
     override fun onStop() {
         note("onStop")
+        app.ownScreenUp(false)
         window.decorView.removeCallbacks(sleepAfter)
         view?.stop()
         super.onStop()

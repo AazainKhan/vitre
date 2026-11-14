@@ -236,7 +236,8 @@ internal object VizShaders {
             vec3 c = texture2D(uPrev, vUv).rgb;
             float l = dot(c, vec3(0.333));
             c = pow(max(mix(vec3(l), c, 1.0 + 0.7 * uVivid), 0.0), vec3(1.0 - 0.22 * uVivid));
-            gl_FragColor = vec4(c + (uTint * 0.04 + uFloor) * (1.0 - 0.85 * length(vUv - 0.5)), 1.0);
+            float len = length(vUv - 0.5);
+            gl_FragColor = vec4(c + uTint * 0.04 * (1.0 - 0.85 * len) + uFloor * (1.0 - 0.4 * len), 1.0);
         }
     """
 }

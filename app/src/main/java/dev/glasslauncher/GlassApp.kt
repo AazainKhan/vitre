@@ -137,6 +137,14 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         }
     }
 
+    /**
+     * Our own full-screen windows over Home (the saver's activity or dream) are in this process. `releaseWhileHidden` trims the whole
+     * process's renderer state, which would take their surfaces with it (the visualizer's SurfaceView went hidden 20 s after the
+     * saver opened: P334). Counted here by the saver hosts; while one is up the release keeps the memory work and skips that trim.
+     */
+    private val ownScreens = java.util.concurrent.atomic.AtomicInteger(0)
+    fun ownScreenUp(up: Boolean) { if (up) ownScreens.incrementAndGet() else ownScreens.updateAndGet { maxOf(0, it - 1) } }
+
     fun homeShown() {
         dev.glasslauncher.ui.GpuCaches.homeShown()
         hiddenRelease?.cancel()
@@ -153,7 +161,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         dev.glasslauncher.home.HeroCache.cover.trim()
         tileArt.empty()
         SingletonImageLoader.get(this).memoryCache?.clear()
-        dev.glasslauncher.ui.GpuCaches.releaseWhileHidden()
+        if (ownScreens.get() == 0) dev.glasslauncher.ui.GpuCaches.releaseWhileHidden()   // never under our own saver: it shares this process's renderer
         kotlinx.coroutines.withContext(Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
     }
 
