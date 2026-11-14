@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""Unattended stick check: one command, one JSON verdict, no remote navigation.
+
+    scripts/stickcheck [--apk PATH] [--keep] RECIPE [RECIPE ...]
+    scripts/stickcheck all                 # every recipe below
+    scripts/stickcheck viz-black --long    # 5-min runs instead of 2-min
+
+Recipes (what we ran by hand during P334-P345):
+  viz-black   Spectrum and Warp savers with music: no black frames below the clock, the SurfaceView
+              layer never hidden (SF flag 0x1), a real pause shows the glow (not 0,0,0) and stops GL.
+  viz-ms      GPU draw+finish per visualizer style (debug.vitre.viz.stats) against a budget.
+  saver-mem   Home PSS/Native/Graphics before and after repeated saver opens: no ratchet.
+  idle-home   Home with music paused, 130 s after the last input (past the idle fade): CPU %, RenderThread ticks, frames drawn.
+
+Every run: takes the stick lock, optionally installs (-r only), checks RemoteKeysService, the Now Playing
+listener and the su policy, detects a reboot (uptime drop: FAIL "reboot" plus dropbox/lmkd evidence),
+sets saver settings through DebugDumpReceiver (never the remote), and restores them, the stats prop,
+playback and the lock at the end. Prints one JSON object; exit 1 if any check FAILs.
+"""
+import json, os, re, shlex, subprocess, sys, time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PKG = "dev.glasslauncher"
+SAVER = f"{PKG}/.dream.AerialActivity"
+RECV = f"{PKG}/.system.DebugDumpReceiver"
+LISTENER = f"{PKG}/{PKG}.widgets.NowPlayingService"
+SV_LAYER = f"SurfaceView - {PKG}/{PKG}.dream.AerialActivity#0"
+SETTINGS_ACTION = "dev.glasslauncher.action.SETTINGS"
+STYLES = ["Spectrum", "Tunnel", "Warp", "Ribbons", "Grid", "Scope"]
+# draw+finish budget per style, ms (30 fps = 33.3; these are today's numbers plus ~1.5 ms headroom).
+BUDGET = {"Spectrum": 17.0, "Tunnel": 22.5, "Warp": 23.0, "Ribbons": 25.0, "Grid": 22.5, "Scope": 23.5}
+LONG = "--long" in sys.argv
+
+
+def sh(cmd, timeout=60, check=False):
+    r = subprocess.run(cmd, shell=True, capture_output=True, timeout=timeout)
+    if check and r.returncode:
+        raise RuntimeError(f"{cmd}: {r.stderr.decode(errors='replace')[-300:]}")
+    return r.stdout.decode(errors="replace")
+
+
+def adb(cmd, timeout=60):
+    return sh(f"adb shell {shlex.quote(cmd)}", timeout)  # quoted for the Mac shell: $vars expand on the stick
+
+
+def su(cmd):
+    return adb(f"su -c {json.dumps(cmd)}")
+
+
+# ---------- device state ----------
+def uptime():
+    try:
+        return float(adb("cat /proc/uptime").split()[0])
+    except (ValueError, IndexError):
+        return -1.0
+
+
+def glass_pid():
+    return adb(f"pidof {PKG}").strip()
+
+
+def playback_state():
+    m = re.search(r"package=com\.spotify[\s\S]*?state=PlaybackState \{state=(\d)", adb("dumpsys media_session"))
+    return int(m.group(1)) if m else -1
+
+
+def ensure_playing():
+    if playback_state() == 3:
+        return True
+    adb("cmd media_session dispatch play"); time.sleep(3)
+    if playback_state() == 3:
+        return True
+    adb("am start -n com.spotify.tv.android/.SpotifyTVActivity"); time.sleep(6)
+    adb("input keyevent 85"); time.sleep(3)  # the one key we send: Spotify's own play, after a cold start
+    adb("am start -a android.intent.action.MAIN -c android.intent.category.HOME"); time.sleep(2)
+    return playback_state() == 3
+
+
+def pause():
+    adb("cmd media_session dispatch pause"); time.sleep(1)
+
+
+def saver_set(**kv):
+    """saver=Aerials|Ascii|NowPlaying|..., viz=bool, viz_style=Name. Returns the state string Glass reports."""
+    args = []
+    for k, v in kv.items():
+        args.append(f"--ez {k} {'true' if v else 'false'}" if isinstance(v, bool) else f"--es {k} {v}")
+    out = adb(f"am broadcast -n {RECV} {' '.join(args)}")
+    m = re.search(r'data="([^"]*)"', out)
+    return m.group(1) if m else ""
+
+
+def saver_state():
+    s = saver_set(saver="query")  # unknown name: changes nothing, reports the current state
+    d = dict(p.split("=", 1) for p in s.split() if "=" in p)
+    return d
+
+
+def home():
+    adb("am start -a android.intent.action.MAIN -c android.intent.category.HOME")
+
+
+def open_saver():
+    su(f"am start -n {SAVER}")
+
+
+def close_saver():
+    adb("input keyevent 4"); time.sleep(1); home()
+
+
+def keys_service_ok():
+    return "RemoteKeysService" in adb("settings get secure enabled_accessibility_services")
+
+
+def su_policy():
+    m = re.search(r"userId=(\d+)", adb(f"dumpsys package {PKG}"))
+    return su(f'magisk --sqlite "SELECT policy,notification,logging FROM policies WHERE uid={m.group(1) if m else -1}"').strip()
+
+
+def stats_prop(on):
+    """debug.vitre.viz.stats is read once per process: set it and restart Glass through HOME."""
+    adb(f"setprop debug.vitre.viz.stats {1 if on else 0}")
+    adb(f"am force-stop {PKG}"); time.sleep(1); home(); time.sleep(5)
+
+
+# ---------- evidence ----------
+def frame_black_fraction():
+    """Fraction of pixels below y=200 (under the clock) that are near-black, from a raw screencap."""
+    raw = subprocess.run("adb exec-out screencap", shell=True, capture_output=True, timeout=30).stdout
+    if len(raw) < 16:
+        return None
+    w = int.from_bytes(raw[0:4], "little"); h = int.from_bytes(raw[4:8], "little")
+    hdr = len(raw) - w * h * 4
+    if hdr not in (12, 16):
+        return None
+    px = raw[hdr:]
+    y0 = 200 * h // 1080
+    dark = total = 0
+    for y in range(y0, h, 8):                     # every 8th row and column: ~30k samples, fast enough
+        row = px[y * w * 4:(y + 1) * w * 4]
+        for x in range(0, w * 4, 32):
+            total += 1
+            if row[x] < 10 and row[x + 1] < 10 and row[x + 2] < 10:
+                dark += 1
+    return dark / total if total else None
+
+
+def frame_mean_rgb():
+    raw = subprocess.run("adb exec-out screencap", shell=True, capture_output=True, timeout=30).stdout
+    w = int.from_bytes(raw[0:4], "little"); h = int.from_bytes(raw[4:8], "little")
+    px = raw[len(raw) - w * h * 4:]
+    s = [0, 0, 0]; n = 0
+    for y in range(200 * h // 1080, h, 16):
+        row = px[y * w * 4:(y + 1) * w * 4]
+        for x in range(0, w * 4, 64):
+            s[0] += row[x]; s[1] += row[x + 1]; s[2] += row[x + 2]; n += 1
+    return [round(c / n) for c in s]
+
+
+def sv_flags():
+    m = re.search(r"\+ BufferQueueLayer \(" + re.escape(SV_LAYER) + r"\)[\s\S]{0,1500}?flags=(0x[0-9a-f]+)", adb("dumpsys SurfaceFlinger", 30))
+    return m.group(1) if m else None
+
+
+def sv_frames(seconds):
+    adb("dumpsys SurfaceFlinger --latency-clear"); time.sleep(seconds)
+    out = sh(f"adb shell dumpsys SurfaceFlinger --latency \"'{SV_LAYER}'\"")
+    t = [int(l.split()[1]) for l in out.splitlines()[1:] if len(l.split()) == 3 and 0 < int(l.split()[1]) < 10**17]
+    return len(t), (max((b - a) / 1e6 for a, b in zip(t, t[1:])) if len(t) > 2 else None)
+
+
+def meminfo():
+    out = adb(f"dumpsys meminfo {PKG}")
+    def row(name):
+        m = re.search(rf"^\s*{name}:\s+(\d+)", out, re.M)
+        return int(m.group(1)) if m else None
+    tot = re.search(r"TOTAL PSS:\s+(\d+)", out)
+    return {"pss": int(tot.group(1)) if tot else None, "native": row("Native Heap"), "java": row("Java Heap"), "graphics": row("Graphics")}
+
+
+def cpu_ticks(pid):
+    out = adb(f"for t in /proc/{pid}/task/*; do echo $(cat $t/comm | tr ' ' _) $(awk '{{print $14+$15}}' $t/stat); done")
+    tot = 0; rt = 0
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) == 2 and p[1].isdigit():
+            tot += int(p[1]); rt += int(p[1]) if p[0] == "RenderThread" else 0
+    return tot, rt
+
+
+def viz_log_avgs(text, style=None):
+    return [float(m.group(2)) for m in re.finditer(r"VitreViz: (\w+) \d+x\d+: draw\+finish avg ([\d.]+) ms", text) if style in (None, m.group(1))]
+
+
+def reboot_evidence():
+    ev = {}
+    for tag in ("SYSTEM_SERVER_WATCHDOG", "system_server_crash", "SYSTEM_TOMBSTONE", "system_server_wtf", "SYSTEM_RESTART"):
+        out = adb(f"dumpsys dropbox --print {tag}", 60)
+        ev[tag] = out[-1500:] if "Drop box contents" in out and len(out) > 200 else ""
+    ev["lmkd"] = "\n".join(l for l in sh("adb logcat -d -b events").splitlines() if "lmk" in l.lower())[-1500:]
+    ev["boot_reason"] = adb("getprop sys.boot.reason").strip()
+    return ev
+
+
+def scrub(s):
+    """Device serial and IP never leave this script (JSON output, Jev triage)."""
+    ser = os.environ.get("_STICK_SERIAL", "")
+    s = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b", "<ip>", s)
+    return s.replace(ser, "<serial>") if ser else s
+
+
+# ---------- recipes ----------
+def viz_black(res):
+    secs = 300 if LONG else 120
+    ensure_playing()
+    for style in ("Spectrum", "Warp"):
+        saver_set(saver="NowPlaying", viz=True, viz_style=style)
+        open_saver(); t0 = time.time(); black = []; caps = 0; flag_hidden = []
+        while time.time() - t0 < secs:
+            f = frame_black_fraction(); caps += 1
+            if f is not None and f > 0.98:
+                black.append(round(time.time() - t0))
+            if caps % 5 == 0 and sv_flags() not in (None, "0x00000002"):
+                flag_hidden.append(round(time.time() - t0))
+            time.sleep(1)
+        res.check(f"viz-black/{style}/no-black", not black, caps=caps, black_at_s=black)
+        res.check(f"viz-black/{style}/surface-shown", not flag_hidden, hidden_at_s=flag_hidden)
+        # A real pause: glow, not 0,0,0, and GL stops within ~2.5 s.
+        pause(); time.sleep(2.5)
+        frames, _ = sv_frames(5)
+        rgb = frame_mean_rgb()
+        res.check(f"viz-black/{style}/pause-glow", max(rgb) >= 12, mean_rgb=rgb)
+        res.check(f"viz-black/{style}/pause-stops-gl", frames <= 2, frames_2_5_to_7_5s=frames)
+        ensure_playing(); close_saver(); time.sleep(2)
+
+
+def viz_ms(res):
+    ensure_playing()
+    stats_prop(True)
+    try:
+        saver_set(saver="NowPlaying", viz=True)
+        for style in STYLES:
+            saver_set(viz_style=style)
+            sh("adb logcat -c"); open_saver(); time.sleep(14)
+            frames, gap = sv_frames(4)
+            avgs = viz_log_avgs(sh("adb logcat -d -s VitreViz"), style)[1:]  # first window includes the start-up
+            close_saver(); time.sleep(1.5)
+            avg = round(sum(avgs) / len(avgs), 1) if avgs else None
+            fps = round((frames - 1) / 4, 1) if frames else 0
+            res.check(f"viz-ms/{style}", avg is not None and avg <= BUDGET[style] and fps >= 28,
+                      draw_finish_ms=avg, budget_ms=BUDGET[style], windows=len(avgs), fps=fps, max_gap_ms=round(gap) if gap else None)
+    finally:
+        stats_prop(False)
+
+
+def saver_mem(res, repeats=3, open_s=60, rest_s=30):
+    home(); time.sleep(rest_s)
+    steps = [{"step": "home0", **meminfo()}]
+    # Settings first (its saver previews cost ~10 MB Native once, P345), so the saver steps compare against that.
+    adb(f"am start -a {SETTINGS_ACTION} -n {PKG}/.MainActivity"); time.sleep(8); home(); time.sleep(rest_s)
+    base = meminfo(); steps.append({"step": "home-after-settings", **base})
+    for mode in ("Aerials", "Ascii", "NowPlaying"):
+        saver_set(saver=mode, viz=(mode == "NowPlaying"))
+        if mode == "NowPlaying":
+            ensure_playing()
+        for k in range(1, repeats + 1):
+            open_saver(); time.sleep(open_s); close_saver(); time.sleep(rest_s)
+            steps.append({"step": f"{mode}{k}", **meminfo()})
+        run = steps[-repeats:]
+        # A ratchet climbs on every open; one high step that falls back is GC or cache timing (P346 run 3).
+        climbs = lambda k: all((b[k] or 0) - (a[k] or 0) > 2048 for a, b in zip(run, run[1:]))
+        res.check(f"saver-mem/{mode}/no-ratchet", not (climbs("native") or climbs("graphics") or climbs("pss")),
+                  native_kb=[r["native"] for r in run], graphics_kb=[r["graphics"] for r in run], pss_kb=[r["pss"] for r in run])
+    end = steps[-1]
+    res.check("saver-mem/home-returns", (end["pss"] or 0) - (base["pss"] or 0) <= 10240, base_pss_kb=base["pss"], end_pss_kb=end["pss"], steps=steps)
+
+
+def idle_home(res):
+    pause(); home(); time.sleep(130)  # past Hide-UI-When-Idle: its 2.5 s fade fires at 2 min of idle by design (P226, P349)
+    pid = glass_pid(); samples = []
+    for _ in range(2):
+        adb(f"dumpsys gfxinfo {PKG} reset")
+        a, ra = cpu_ticks(pid); time.sleep(45); b, rb = cpu_ticks(pid)
+        fr = re.search(r"Total frames rendered: (\d+)", adb(f"dumpsys gfxinfo {PKG}"))
+        samples.append({"cpu_pct": round((b - a) / 45, 2), "renderthread_ticks": rb - ra, "frames": int(fr.group(1)) if fr else None})
+    worst = max(s["cpu_pct"] for s in samples)
+    res.check("idle-home", worst <= 1.0 and all((s["frames"] or 0) <= 5 for s in samples), samples=samples)
+    ensure_playing()
+
+
+HEAVY_APPS = ["io.gh.reisxd.tizentube.cobalt", "com.nuvio.tv", "com.stremio.one", "org.videolan.vlc", "com.mxtech.videoplayer.pro", "com.instagram.airwave"]
+
+
+def home_press(res):
+    """docs/home-press.md (P342), measurement only: needs a build with debug.vitre.homepress (VitreHome lines)."""
+    def press():
+        """Device clock at the press, then the VitreHome line it produced: (kind, resume->frame ms, press->screen ms)."""
+        sh("adb logcat -c")
+        t = float(adb("date +%s.%N; input keyevent KEYCODE_HOME").split()[0])
+        for _ in range(16):
+            time.sleep(0.5)
+            for l in sh("adb logcat -d -v epoch -s VitreHome").splitlines():
+                m = re.match(r"\s*([\d.]+).*resume->first frame (\d+) ms \((warm|cold)", l)
+                if m and float(m.group(1)) > t:  # after a force-stop the system can resume Home before our press: not ours
+                    return m.group(3), int(m.group(2)), round((float(m.group(1)) - t) * 1000)
+        return None, None, None
+
+    def med(xs):
+        xs = sorted(x for x in xs if x is not None)
+        return xs[len(xs) // 2] if xs else None
+
+    adb("setprop debug.vitre.homepress 1"); adb(f"am force-stop {PKG}"); home(); time.sleep(6)
+    try:
+        warm = []
+        for _ in range(10):
+            adb(f"am start -a {SETTINGS_ACTION} -n {PKG}/.MainActivity"); time.sleep(3)
+            warm.append(press())
+        ok = [w for w in warm if w[0] == "warm"]
+        res.check("home-press/warm", len(ok) >= 8, n=len(ok), resume_ms_median=med([w[1] for w in ok]), press_to_screen_ms_median=med([w[2] for w in ok]))
+        cold = []
+        for _ in range(6):  # the first is discarded: shader compiles after an install
+            adb(f"am force-stop {PKG}"); time.sleep(1); cold.append(press()); time.sleep(4)
+        ok = [c for c in cold[1:] if c[0] == "cold"]
+        res.check("home-press/cold", len(ok) >= 4, n=len(ok), resume_ms_median=med([c[1] for c in ok]), press_to_screen_ms_median=med([c[2] for c in ok]))
+        for pin in ("", "-800"):
+            adb(f"setprop debug.vitre.pin '{pin}'"); sh("adb logcat -c"); adb(f"am force-stop {PKG}"); home(); time.sleep(35)
+            held = re.findall(r"pin check \+30 s: oom_score_adj=(-?\d+)", sh("adb logcat -d -s VitreHome"))
+            runs = []
+            for round_ in range(2):
+                for app in HEAVY_APPS:
+                    adb(f"monkey -p {app} -c android.intent.category.LEANBACK_LAUNCHER 1"); time.sleep(8)
+                runs.append(press()); time.sleep(3)
+            label = "pinned" if pin else "unpinned"
+            res.check(f"home-press/after-pressure-{label}", all(r[0] for r in runs), cold_lines=sum(r[0] == "cold" for r in runs),
+                      runs=[{"kind": r[0], "resume_ms": r[1], "press_to_screen_ms": r[2]} for r in runs],
+                      pin_adj_at_30s=held[0] if held else None)
+    finally:
+        adb("setprop debug.vitre.homepress ''"); adb("setprop debug.vitre.pin ''")
+        for app in HEAVY_APPS:
+            adb(f"am force-stop {app}")
+        adb(f"am force-stop {PKG}"); home(); time.sleep(5)
+
+
+RECIPES = {"viz-black": viz_black, "viz-ms": viz_ms, "saver-mem": saver_mem, "idle-home": idle_home, "home-press": home_press}
+
+
+class Result:
+    def __init__(self):
+        self.checks = []
+
+    def check(self, name, ok, **data):
+        self.checks.append({"check": name, "verdict": "PASS" if ok else "FAIL", **data})
+        print(f"  {'PASS' if ok else 'FAIL'} {name} {json.dumps(data)[:160]}", file=sys.stderr, flush=True)
+
+
+def main():
+    argv = [a for a in sys.argv[1:] if a != "--long"]
+    apk = None; keep = False
+    if "--apk" in argv:
+        i = argv.index("--apk"); apk = argv[i + 1]; del argv[i:i + 2]
+    if "--keep" in argv:
+        argv.remove("--keep"); keep = True
+    recipes = [r for r in RECIPES if r != "home-press"] if argv == ["all"] else argv  # home-press needs a P342 build
+    if not recipes or any(r not in RECIPES for r in recipes):
+        print(__doc__, file=sys.stderr); sys.exit(2)
+
+    os.environ["_STICK_SERIAL"] = sh("adb get-serialno").strip()
+    owner = os.environ.get("TV_OWNER", "stickcheck")
+    lock = os.path.join(ROOT, "scripts", "stick-lock")
+    if subprocess.run(f"{lock} take {owner} 60", shell=True, capture_output=True).returncode:
+        print(json.dumps({"verdict": "SKIP", "reason": "stick locked by someone else"})); sys.exit(1)
+    res = Result(); t_start = time.time(); up0 = uptime(); restore = None; vc = None
+    try:
+        if apk:
+            out = sh(f"adb install -r {json.dumps(apk)}", 180)
+            res.check("install", "Success" in out, out=out.strip()[-120:])
+        vc = re.search(r"versionCode=(\d+)", adb(f"dumpsys package {PKG}"))
+        adb(f"cmd notification allow_listener {LISTENER}")
+        res.check("setup/keys-service", keys_service_ok())
+        res.check("setup/su-policy", su_policy().startswith("policy=2|notification=0|logging=0"), policy=su_policy())
+        restore = saver_state()
+        res.check("setup/saver-control", "saver" in restore, state=restore)
+        for r in recipes:
+            t = time.time()
+            try:
+                RECIPES[r](res)
+            except Exception as e:  # a recipe crash is a FAIL with its message, not a lost run
+                res.check(f"{r}/ran", False, error=scrub(str(e))[-300:])
+            if uptime() < up0:
+                res.check(f"{r}/no-reboot", False, tag="reboot", evidence={k: scrub(v) for k, v in reboot_evidence().items()})
+                break
+            print(f"  {r}: {time.time() - t:.0f}s", file=sys.stderr)
+    finally:
+        if restore and "saver" in restore and not keep:
+            saver_set(saver=restore["saver"], viz=restore.get("viz") == "true", viz_style=restore.get("style", "Spectrum"))
+        adb("setprop debug.vitre.viz.stats 0")
+        home(); ensure_playing()
+        res.check("teardown/keys-service", keys_service_ok())
+        subprocess.run(f"{lock} release {owner}", shell=True, capture_output=True)
+    fails = [c["check"] for c in res.checks if c["verdict"] == "FAIL"]
+    out = {"verdict": "FAIL" if fails else "PASS", "fails": fails, "recipes": recipes,
+           "version_code": int(vc.group(1)) if vc else None, "wall_s": round(time.time() - t_start), "checks": res.checks}
+    print(scrub(json.dumps(out, indent=1)))
+    sys.exit(1 if fails else 0)
+
+
+if __name__ == "__main__":
+    main()
