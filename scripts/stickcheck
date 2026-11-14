@@ -253,7 +253,7 @@ def viz_ms(res):
         stats_prop(False)
 
 
-def saver_mem(res, repeats=3, open_s=60, rest_s=30):
+def saver_mem(res, repeats=3, open_s=60, rest_s=45):  # 45 s: HWUI frees closed savers' textures at 20-40 s (P350)
     home(); time.sleep(rest_s)
     steps = [{"step": "home0", **meminfo()}]
     # Settings first (its saver previews cost ~10 MB Native once, P345), so the saver steps compare against that.
@@ -294,16 +294,31 @@ HEAVY_APPS = ["io.gh.reisxd.tizentube.cobalt", "com.nuvio.tv", "com.stremio.one"
 def home_press(res):
     """docs/home-press.md (P342), measurement only: needs a build with debug.vitre.homepress (VitreHome lines)."""
     def press():
-        """Device clock at the press, then the VitreHome line it produced: (kind, resume->frame ms, press->screen ms)."""
-        sh("adb logcat -c")
-        t = float(adb("date +%s.%N; input keyevent KEYCODE_HOME").split()[0])
+        """(kind, resume->frame ms, press->screen ms, breakdown). The key goes through scripts/key (a direct input-node write,
+        ~0.1 s; `input keyevent` costs ~0.9 s of Java start-up). The press time is the kernel's KEY_HOMEPAGE DOWN stamp
+        from getevent -lt and the frame time is the VitreHome line in logcat -v monotonic: both CLOCK_MONOTONIC."""
+        sh("adb logcat -c; adb logcat -b events -c")
+        ge = subprocess.Popen("adb shell getevent -lt", shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        time.sleep(0.6)
+        sh(f"{os.path.join(ROOT, 'scripts', 'key')} home")
+        time.sleep(0.4); ge.terminate()
+        down = [float(m.group(1)) for m in re.finditer(r"\[\s*([\d.]+)\][^\n]*KEY_HOMEPAGE\s+DOWN", ge.communicate()[0] or "")]
+        if not down:
+            return None, None, None, None
+        t = down[0]
         for _ in range(16):
             time.sleep(0.5)
-            for l in sh("adb logcat -d -v epoch -s VitreHome").splitlines():
+            for l in sh("adb logcat -d -v monotonic -s VitreHome").splitlines():
                 m = re.match(r"\s*([\d.]+).*resume->first frame (\d+) ms \((warm|cold)", l)
                 if m and float(m.group(1)) > t:  # after a force-stop the system can resume Home before our press: not ours
-                    return m.group(3), int(m.group(2)), round((float(m.group(1)) - t) * 1000)
-        return None, None, None
+                    ev = {}
+                    for e in sh("adb logcat -d -b events -v monotonic").splitlines():
+                        k = re.search(r"\b(am_pause_activity|am_on_paused_called|am_resume_activity|am_on_resume_called|wm_on_resume_called|wm_resume_activity|wm_pause_activity|wm_on_paused_called)\b", e)
+                        tm = re.match(r"\s*([\d.]+)", e)
+                        if k and tm and float(tm.group(1)) > t and k.group(1) not in ev:
+                            ev[k.group(1)] = round((float(tm.group(1)) - t) * 1000)
+                    return m.group(3), int(m.group(2)), round((float(m.group(1)) - t) * 1000), ev
+        return None, None, None, None
 
     def med(xs):
         xs = sorted(x for x in xs if x is not None)
@@ -316,10 +331,19 @@ def home_press(res):
             adb(f"am start -a {SETTINGS_ACTION} -n {PKG}/.MainActivity"); time.sleep(3)
             warm.append(press())
         ok = [w for w in warm if w[0] == "warm"]
-        res.check("home-press/warm", len(ok) >= 8, n=len(ok), resume_ms_median=med([w[1] for w in ok]), press_to_screen_ms_median=med([w[2] for w in ok]))
+        res.check("home-press/warm", len(ok) >= 8, n=len(ok), resume_ms_median=med([w[1] for w in ok]), press_to_screen_ms_median=med([w[2] for w in ok]),
+                  events_ms_median={k: med([w[3].get(k) for w in ok if w[3]]) for k in sorted({k for w in ok if w[3] for k in w[3]})})
         cold = []
-        for _ in range(6):  # the first is discarded: shader compiles after an install
-            adb(f"am force-stop {PKG}"); time.sleep(1); cold.append(press()); time.sleep(4)
+        # After a force-stop Fire restarts Home by itself (the HOME role), before any press: so cold is the resume->frame of
+        # that restart, read from the monotonic log; press->screen does not apply. The first one after an install is dropped.
+        for _ in range(6):
+            sh("adb logcat -c"); adb(f"am force-stop {PKG}"); time.sleep(1); home(); kind = None
+            for _ in range(16):
+                time.sleep(0.5)
+                m = re.search(r"resume->first frame (\d+) ms \((cold)", sh("adb logcat -d -s VitreHome"))
+                if m:
+                    kind = ("cold", int(m.group(1)), None, None); break
+            cold.append(kind or (None, None, None, None)); time.sleep(4)
         ok = [c for c in cold[1:] if c[0] == "cold"]
         res.check("home-press/cold", len(ok) >= 4, n=len(ok), resume_ms_median=med([c[1] for c in ok]), press_to_screen_ms_median=med([c[2] for c in ok]))
         for pin in ("", "-800"):
@@ -332,7 +356,7 @@ def home_press(res):
                 runs.append(press()); time.sleep(3)
             label = "pinned" if pin else "unpinned"
             res.check(f"home-press/after-pressure-{label}", all(r[0] for r in runs), cold_lines=sum(r[0] == "cold" for r in runs),
-                      runs=[{"kind": r[0], "resume_ms": r[1], "press_to_screen_ms": r[2]} for r in runs],
+                      runs=[{"kind": r[0], "resume_ms": r[1], "press_to_screen_ms": r[2], "events_ms": r[3]} for r in runs],
                       pin_adj_at_30s=held[0] if held else None)
     finally:
         adb("setprop debug.vitre.homepress ''"); adb("setprop debug.vitre.pin ''")
