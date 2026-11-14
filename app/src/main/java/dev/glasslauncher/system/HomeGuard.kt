@@ -35,10 +35,30 @@ class HomeGuardService : AccessibilityService() {
         val now = SystemClock.uptimeMillis()
         if (now - lastJump < 800) return
         lastJump = now
+        HomeBounce.mark(now)
         startActivity(HomeSetup.homeIntent(this))
     }
 
     override fun onInterrupt() = Unit
+}
+
+/**
+ * Measures the fallback (P341): from the moment the guard sees the stock home window to VITRE's first frame after it, logged as
+ * "bounce N ms" under VitreBounce. It costs a timestamp per bounce and one frame callback after it; nothing runs otherwise.
+ * `adb logcat -s VitreBounce`. (The press itself is a little earlier than the window, so this is a floor.)
+ */
+object HomeBounce {
+    @Volatile private var at = 0L
+    fun mark(now: Long) { at = now }
+
+    /** MainActivity.onResume: if a bounce is open, log the time to the next frame. */
+    fun resumed() {
+        val t0 = at.takeIf { it != 0L } ?: return
+        at = 0L
+        android.view.Choreographer.getInstance().postFrameCallback {
+            android.util.Log.i("VitreBounce", "bounce ${SystemClock.uptimeMillis() - t0} ms from the stock home window to VITRE's first frame")
+        }
+    }
 }
 
 object HomeSetup {

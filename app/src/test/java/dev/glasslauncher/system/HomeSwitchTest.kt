@@ -70,7 +70,7 @@ class HomeSwitchTest {
     // ── The switch and Original, against a fake TV ────────────────────────────────────────────
 
     private class FakeTv(val installed: Set<String>, val disabled: MutableSet<String> = mutableSetOf(), var home: String = "com.google.android.tvlauncher/.MainActivity",
-                         val wifiOwners: String = "Wi-Fi is enabled", val refuse: Set<String> = emptySet(), val needsInput: Set<String> = emptySet()) : TvShell {
+                         val wifiOwners: String = "Wi-Fi is enabled", val refuse: Set<String> = emptySet(), val needsInput: Set<String> = emptySet(), val ignoreSetHome: Boolean = false) : TvShell {
         val log = mutableListOf<String>()
         override fun run(command: String): String {
             log += command
@@ -88,7 +88,7 @@ class HomeSwitchTest {
                 command.startsWith("settings get global wifi_on") -> "1"
                 command.startsWith("for p in") -> command.substringAfter("for p in ").substringBefore(';').split(' ')
                     .joinToString("\n") { if (it in needsInput) "keep $it" else "- $it" } + "\nchecked"
-                command.startsWith("cmd package set-home-activity") -> { home = command.substringAfter("set-home-activity ").trim('\''); "Success: activity set" }
+                command.startsWith("cmd package set-home-activity") -> { if (!ignoreSetHome) home = command.substringAfter("set-home-activity ").trim('\''); "Success: activity set" }
                 command.startsWith("pm disable-user --user 0 ") -> command.substringAfterLast(' ').let {
                     if (it in refuse) "Exception: Shell cannot change component state" else { disabled += it; "Package $it new state: disabled-user" }
                 }
@@ -148,6 +148,14 @@ class HomeSwitchTest {
         assertTrue("only Fire's two home packages were even tried", tv.log.filter { it.startsWith("pm disable") }.all { it.endsWith("launcher") || it.endsWith("firehomestarter") })
         assertTrue(e.restore(tv).ok)
         assertEquals("com.amazon.tv.launcher/.Home", tv.home)
+    }
+
+    @Test fun aHomeThatDidNotChangeFallsBackToTheGuardEvenIfAndroidSaidSuccess() {
+        val tv = FakeTv(setOf("com.amazon.tv.launcher"), home = "com.amazon.tv.launcher/.Home", refuse = setOf("com.amazon.tv.launcher"), ignoreSetHome = true)
+        val (e, _) = engine(true, tv, listOf("com.amazon.tv.launcher"))
+        val r = e.switchOn(tv)
+        assertTrue(r.message, r.needsGuard)
+        assertTrue(r.message.contains("com.amazon.tv.launcher"))
     }
 
     @Test fun anUnreadableWifiServiceStopsEverythingOnWifi() {

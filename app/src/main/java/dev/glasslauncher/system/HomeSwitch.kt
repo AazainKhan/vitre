@@ -55,6 +55,11 @@ internal class SwitchEngine(
             } else if (fire && t in HomeSafety.FIRE_HOME) fireRefused = true
         }
         prefs.edit().putBoolean("on", true).apply()
+        // `set-home-activity` can print "Success" and change nothing (reported on Fire OS 8): trust only who answers Home now.
+        val inCharge = holder(sh)
+        if (inCharge.isNotEmpty() && inCharge != pkg) {
+            return SwitchOutcome(true, "Android said yes, but ${inCharge.substringBefore(';')} still answers the Home button, so VITRE watches for it and takes Home back (it may flash for a moment).", needsGuard = true)
+        }
         return if (fireRefused) SwitchOutcome(true, "Fire OS wouldn't turn off its home screen without root, so VITRE watches for it and takes Home back (it may flash for a moment).", needsGuard = true)
         else SwitchOutcome(true, "VITRE is your home screen. ${done.size} other app${if (done.size == 1) " is" else "s are"} turned off; Original turns them back on.")
     }
