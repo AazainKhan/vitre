@@ -102,6 +102,9 @@ class VisualizerLayer(
     private var lastData = 0L
     private var lastRestart = 0L
     private var restarts = 0
+    private var lastStats = 0L
+    /** Set by the saver from the media state: the watchdog never acts on a pause, a gap between tracks or a stop. */
+    @Volatile var sounding = true
     private var tintColor = Color.WHITE
     val usingGpu get() = gl != null
 
@@ -133,7 +136,17 @@ class VisualizerLayer(
         override fun run() {
             if (!running) return
             val now = SystemClock.uptimeMillis()
+            if (!sounding) {
+                // Not playing (a pause, a gap, a stop): nothing to restart, and silence counts from when sound is expected again.
+                quietSince = now; lastData = now; lastRestart = now
+                main.postDelayed(this, WATCH_MS)
+                return
+            }
             val silentFor = now - quietSince
+            if (now - lastStats >= STATS_MS) {
+                lastStats = now
+                android.util.Log.i("VitreViz", "capture: signal=${analysis.signal} maxMag=${analysis.maxMagnitude} top=${analysis.topBand} loudest=${analysis.loudestBand} gain=${analysis.scale} quietFor=${silentFor}ms dataAge=${now - lastData}ms restarts=$restarts")
+            }
             if ((silentFor >= STALL_MS || now - lastData >= STALL_MS) && now - lastRestart >= if (restarts < 6) 3_000L else 30_000L) {
                 lastRestart = now; restarts++
                 android.util.Log.i("VitreViz", "capture silent for $silentFor ms (no data for ${now - lastData} ms) while music plays: re-creating the Visualizer (#$restarts)")
@@ -186,5 +199,5 @@ class VisualizerLayer(
 
     override fun onDetachedFromWindow() { halt(); super.onDetachedFromWindow() }
 
-    companion object { const val SILENT_MS = 6_000L; const val STALL_MS = 1_500L; private const val WATCH_MS = 500L }
+    companion object { const val SILENT_MS = 6_000L; const val STALL_MS = 1_500L; private const val WATCH_MS = 500L; private const val STATS_MS = 4_000L }
 }

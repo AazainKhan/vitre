@@ -160,6 +160,8 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0); GLES20.glViewport(0, 0, W, H)
                 GLES20.glUseProgram(blit)
                 GLES20.glUniform3f(GLES20.glGetUniformLocation(blit, "uTint"), tn[0], tn[1], tn[2])
+                floor(flow)
+                GLES20.glUniform3f(GLES20.glGetUniformLocation(blit, "uFloor"), floorRgb[0], floorRgb[1], floorRgb[2])
                 GLES20.glUniform1f(GLES20.glGetUniformLocation(blit, "uVivid"), if (style == VisualizerStyle.Warp) 1f else 0f)
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[ping])   // the one step() just wrote
                 GLES20.glUniform1i(GLES20.glGetUniformLocation(blit, "uPrev"), 1)
@@ -169,6 +171,18 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
                 quad(program)
             }
             if (stats) measure(t0)
+        }
+
+        private val floorRgb = FloatArray(3)
+
+        /** A slowly drifting colour (the shaders' hue() in turns of 1/20pi, at a breathing level of 4 to 16 %), added to every pixel in the blit: silence is never black. */
+        private fun floor(flow: Float) {
+            val t = flow / FLOW_PERIOD * 2f   // two turns of hue per wrap of the flow counter, so the wrap is unseen
+            val level = 0.10f + 0.06f * kotlin.math.sin(flow * 0.6f)   // 0.6 x the wrap is 6 whole turns of sine
+            for (i in 0..2) {
+                val f = (((t + i / 3f) % 1f) + 1f) % 1f
+                floorRgb[i] = (kotlin.math.abs(f * 6f - 3f) - 1f).coerceIn(0f, 1f) * level
+            }
         }
 
         /** One feedback pass: the last picture, changed, into the other texture. */

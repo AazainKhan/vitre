@@ -314,6 +314,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
         // A buffering session still counts, and anything else waits 2 s before the GL view is torn down: a blink in the session's
         // state must not black the screen (the view is rebuilt, which takes a moment on the stick).
         handler.removeCallbacks(haltBars)
+        bars?.sounding = n?.sounding == true
         if (n?.sounding == true) bars?.run() else handler.postDelayed(haltBars, HALT_DELAY_MS)
         if (n == null) {
             content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.shown(true); cornerClock.shown(false)

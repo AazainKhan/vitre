@@ -133,6 +133,21 @@ class NowPlayingVisualizerTest {
         layer.halt()
     }
 
+    @Test fun nearSilenceIsNotSoundAndAPauseIsNeverRestarted() {
+        val src = FakeSource()
+        val layer = VisualizerLayer(context, src, glFactory = null)
+        layer.run()
+        // one-LSB noise (the stick's capture while its audio path was re-routed): not sound, so the watchdog still acts
+        repeat(8) { src.push!!.invoke(data(fft(fromBin = 0, toBin = 64, magnitude = 1))); idle(500) }
+        assertTrue("noise below the sound level is treated as silence", src.starts >= 2)
+        // a pause: the layer is told, and a silent capture is left alone however long it lasts
+        val before = src.starts
+        layer.sounding = false
+        repeat(12) { src.push!!.invoke(data(fft())); idle(500) }
+        assertEquals("never restarted while nothing is playing", before, src.starts)
+        layer.halt()
+    }
+
     @Test fun withNoGpuTheCanvasBarsRunAndSilenceIsReportedOnce() {
         val src = FakeSource(); var told = 0
         val layer = VisualizerLayer(context, src, onSilent = { told++ }, glFactory = null)

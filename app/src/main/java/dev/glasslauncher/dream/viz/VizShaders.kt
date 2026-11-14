@@ -52,9 +52,6 @@ internal object VizShaders {
             return max(mix(vec3(l), c, sat), 0.0);
         }
         // Brightness past 1 is scaled down with the hue kept, not clipped channel by channel (which turns every hot spot white).
-        // A slow wash of drifting colour that needs no audio: silence, a quiet passage or a gap in the capture still looks alive, never black.
-        // (Sines on uFlow in tenths and hues in turns of FP, so it wraps unseen.)
-        vec3 ambient(vec2 p) { return hue(uFlow * FP * 2.0 + p.x * 0.5 + p.y * 0.35) * (0.06 + 0.06 * sin(length(p) * 5.0 - uFlow * 0.6)); }
         // how much headroom a pixel has: 1 where it is dark, 0 where it is already full
         float room(vec3 c) { return 1.0 - max(c.r, max(c.g, c.b)); }
         vec3 fit(vec3 c) { return c / max(1.0, max(c.r, max(c.g, c.b))); }
@@ -73,7 +70,6 @@ internal object VizShaders {
             vec2 q = vec2(p.x, p.y * (0.962 - 0.035 * uKick)) + 0.0035 * vec2(sin(p.y * 7.0 + uFlow * 0.9), cos(p.x * 6.0 - uFlow * 0.7));
             vec3 col = settle(prevAt(q), 0.935, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
-            add += ambient(p) * 0.68;   // the floor: the same wash whatever the gain below
             const float N = 64.0;
             float cell = floor(vUv.x * N);
             float fx = fract(vUv.x * N);
@@ -100,7 +96,6 @@ internal object VizShaders {
             vec2 q = rot(0.014 + uKick * 0.02) * p * (1.032 + uKick * 0.045) + swirl(p, 0.005);
             vec3 col = settle(prevAt(q), 0.915, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
-            add += ambient(p) * 0.94;   // the floor: the same wash whatever the gain below
             float e = min(0.5 - abs(p.y), 0.8889 - abs(p.x));         // how far inside the border
             float ang = atan(p.y, p.x) / 6.28318 + 0.5;
             float lv = spec(abs(fract(ang + uSpin / 6.28318) * 2.0 - 1.0) * 0.85);
@@ -121,7 +116,6 @@ internal object VizShaders {
             vec2 q = rot(0.006 + (uMid - 0.2) * 0.02) * p * (0.985 - uKick * 0.025) + swirl(p, 0.006);
             vec3 col = settle(prevAt(q), 0.925, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
-            add += ambient(p) * 1.07;   // the floor: the same wash whatever the gain below
             vec2 r = rot(uSpin * 0.4) * p;
             for (int i = 0; i < 4; i++) {
                 float f = float(i);
@@ -182,7 +176,6 @@ internal object VizShaders {
             vec2 q = rot(0.012 + uBeat * 0.01) * p * (0.972 - uKick * 0.03) + swirl(p, 0.004);
             vec3 col = settle(prevAt(q), 0.925, 1.04);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
-            add += ambient(p) * 1.25;   // the floor: the same wash whatever the gain below
             float r = length(p);
             float a = atan(p.y, p.x) / 6.28318 + 0.5;
             float base = 0.30 + uKick * 0.16;
@@ -237,12 +230,13 @@ internal object VizShaders {
         varying vec2 vUv;
         uniform sampler2D uPrev;
         uniform vec3 uTint;
+        uniform vec3 uFloor;   // a drifting colour the CPU computes once a frame: silence or a capture gap is never black
         uniform float uVivid;   // 0 as drawn; 1 lifts saturation and mid-tones (Warp, whose folds blend colours towards mud)
         void main() {
             vec3 c = texture2D(uPrev, vUv).rgb;
             float l = dot(c, vec3(0.333));
             c = pow(max(mix(vec3(l), c, 1.0 + 0.7 * uVivid), 0.0), vec3(1.0 - 0.22 * uVivid));
-            gl_FragColor = vec4(c + uTint * 0.04 * (1.0 - 0.85 * length(vUv - 0.5)), 1.0);
+            gl_FragColor = vec4(c + (uTint * 0.04 + uFloor) * (1.0 - 0.85 * length(vUv - 0.5)), 1.0);
         }
     """
 }

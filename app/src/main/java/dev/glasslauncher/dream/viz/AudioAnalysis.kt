@@ -25,6 +25,11 @@ class AudioAnalysis {
     var beat = 0f; private set
     /** Whether the last capture held any signal at all (silence, or an app that opts out of capture, is all zeros). */
     var signal = false; private set
+    /** The loudest FFT bin of the last capture (0 to 181), the band level after scaling, and the scale: what the watchdog and the stats line report. */
+    var maxMagnitude = 0f; private set
+    var topBand = 0f; private set
+    var loudestBand = 0f; private set
+    var scale = 0f; private set
     private var bassAverage = 0f
     /** The loudest band seen lately, falling slowly: the spectrum is scaled so the music fills the screen at any volume. */
     private var loudest = 0.35f
@@ -47,12 +52,12 @@ class AudioAnalysis {
             for (i in 1..BANDS) if (bins[i] <= bins[i - 1]) bins[i] = minOf(bins[i - 1] + 1, n)
             binsFor = n
         }
-        var any = false
+        var loud = 0f
         var top = 0f
         for (i in 0 until BANDS) {
             var peak = 0f
             for (k in bins[i] until max(bins[i + 1], bins[i] + 1).coerceAtMost(n)) peak = max(peak, hypot(fft[2 * k].toFloat(), fft[2 * k + 1].toFloat()))
-            if (peak > 0f) any = true
+            loud = max(loud, peak)
             // real music falls away towards the treble: lift the upper bands so the whole width moves
             raw[i] = sqrt((peak / 181f).coerceIn(0f, 1f)) * (0.75f + 1.1f * i / BANDS)
             top = max(top, raw[i])
@@ -64,7 +69,9 @@ class AudioAnalysis {
             spectrum[i] = max((raw[i] * gain).coerceIn(0f, 1f), spectrum[i] * fall)
             peaks[i] = max(spectrum[i], peaks[i] - 0.012f)
         }
-        signal = any
+        maxMagnitude = loud; topBand = top; loudestBand = loudest; scale = gain
+        // A level, not "any bin above 0": a capture of 1-LSB noise is silence for this purpose (it showed on the stick as sound the watchdog could not see past).
+        signal = loud >= SIGNAL_MIN
         bass = mean(0, 24); mid = mean(24, 130); high = mean(130, BANDS)
     }
 
@@ -85,7 +92,11 @@ class AudioAnalysis {
         return into
     }
 
-    fun clear() { loudest = 0.35f; spectrum.fill(0f); peaks.fill(0f); wave.fill(0.5f); bass = 0f; mid = 0f; high = 0f; beat = 0f; signal = false; bassAverage = 0f }
+    fun clear() { loudest = 0.35f; spectrum.fill(0f); peaks.fill(0f); wave.fill(0.5f); bass = 0f; mid = 0f; high = 0f; beat = 0f; signal = false; maxMagnitude = 0f; bassAverage = 0f }
 
-    companion object { const val BANDS = 256 }
+    companion object {
+        const val BANDS = 256
+        /** The smallest FFT bin magnitude (of 181) that counts as sound: above the capture's own rounding noise. */
+        const val SIGNAL_MIN = 4f
+    }
 }
