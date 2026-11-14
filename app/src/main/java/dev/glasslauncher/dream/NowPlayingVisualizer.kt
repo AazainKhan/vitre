@@ -103,6 +103,8 @@ class VisualizerLayer(
     private var lastRestart = 0L
     private var restarts = 0
     private var lastStats = 0L
+    /** `setprop debug.vitre.viz.stats 1`: the 4 s capture line (and its view chain) is logged only then, so a release build does no periodic logging. Read each time the layer starts. */
+    private var statsOn = false
     /** Set by the saver from the media state: the watchdog never acts on a pause, a gap between tracks or a stop. */
     @Volatile var sounding = true
     private var tintColor = Color.WHITE
@@ -120,6 +122,7 @@ class VisualizerLayer(
         if (running) return true
         quietSince = SystemClock.uptimeMillis(); told = false
         lastData = quietSince; lastRestart = quietSince; restarts = 0
+        statsOn = VizGlView.prop("debug.vitre.viz.stats")
         analysis.clear()
         show()
         running = source.start { data -> main.post { onData(data) } }
@@ -143,7 +146,7 @@ class VisualizerLayer(
                 return
             }
             val silentFor = now - quietSince
-            if (now - lastStats >= STATS_MS) {
+            if (statsOn && now - lastStats >= STATS_MS) {
                 lastStats = now
                 android.util.Log.i("VitreViz", "capture: signal=${analysis.signal} maxMag=${analysis.maxMagnitude} top=${analysis.topBand} loudest=${analysis.loudestBand} gain=${analysis.scale} quietFor=${silentFor}ms dataAge=${now - lastData}ms restarts=$restarts view=${(gl as? VizGlView)?.chain(gl!!) ?: "none"}")
             }

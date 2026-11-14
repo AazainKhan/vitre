@@ -162,7 +162,8 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
         tileArt.empty()
         SingletonImageLoader.get(this).memoryCache?.clear()
         if (ownScreens.get() == 0) dev.glasslauncher.ui.GpuCaches.releaseWhileHidden()   // never under our own saver: it shares this process's renderer
-        kotlinx.coroutines.withContext(Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
+        // Not under our own saver either: a 112 ms collection in the middle of the visualizer is a visible hitch.
+        if (ownScreens.get() == 0) kotlinx.coroutines.withContext(Dispatchers.Default) { System.gc(); System.runFinalization(); System.gc() }
     }
 
     private companion object {

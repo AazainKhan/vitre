@@ -285,7 +285,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
 
     companion object {
         /** 1280 x 720, or 960 x 540 with `setprop debug.vitre.viz.small 1`; `debug.vitre.viz.stats 1` logs the GPU time per frame (VitreViz). */
-        private fun prop(name: String) = runCatching {
+        internal fun prop(name: String) = runCatching {
             Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, name, "0") == "1"
         }.getOrDefault(false)
         const val FRAME_MS = 33L
