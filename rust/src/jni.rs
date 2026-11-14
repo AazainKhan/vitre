@@ -61,3 +61,10 @@ pub unsafe extern "system" fn Java_dev_glasslauncher_glass_NativeImage_saturate(
 pub unsafe extern "system" fn Java_dev_glasslauncher_glass_NativeImage_scaleOffset(env: *mut c_void, _: *mut c_void, bitmap: *mut c_void, scale: f32, offset: f32) -> u8 {
     with_pixels(env, bitmap, |px, w, h, stride| crate::scale_offset(px, w, h, stride, scale, offset))
 }
+
+/// With no std, nothing defines the unwinding personality that aarch64's unwind tables still name, so `dlopen` failed on every 64-bit
+/// device ("cannot locate symbol rust_eh_personality") and the kernels silently fell back to Skia (P347). The build is panic=abort, so
+/// it is never called. 32-bit ARM's tables do not name it, so that build is untouched.
+#[cfg(target_arch = "aarch64")]
+#[no_mangle]
+pub extern "C" fn rust_eh_personality() {}

@@ -80,6 +80,8 @@ android {
             // GLASS_SHOTS_TIME=HH:mm pins the clock the shots show (see TvHarness); declared as an input so
             // a run at another time is never a stale cached/up-to-date pass.
             it.inputs.property("glassShotsTime", providers.environmentVariable("GLASS_SHOTS_TIME").orElse(""))
+            // NativeLibraryLoadsTest reads the committed native libraries: a rebuilt .so must rerun it, not pass as up to date (P347).
+            it.inputs.files(fileTree("src/main/jniLibs")).withPropertyName("jniLibs")
         }
     }
 
