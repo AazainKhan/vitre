@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         (application as GlassApp).homeShown()
+        dev.glasslauncher.system.HomeWatchdog.rescueIfTripped(this) // a flag read: the safety net's second chance to be on top (P341)
         stoppedSinceResume = false
         dev.glasslauncher.system.RemoteWatch.homeInFront = true
         dev.glasslauncher.system.RemoteWatch.evaluate(this)

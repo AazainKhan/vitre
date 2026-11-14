@@ -11,6 +11,7 @@ VITRE bundles or links the following. All are licensed under Apache-2.0 unless n
 | ZXing core | ZXing authors |
 | Material Symbols icons | Google LLC |
 | Inter font (SIL OFL 1.1, see `licenses/Inter-OFL.txt`) | The Inter Project Authors |
+| Free My TV (self-ADB client, Home switch flow, crash safety net; MIT, see `licenses/free-my-tv-MIT.txt` and `NOTICE`) | Copyright (c) 2026 Free My TV contributors |
 
 Test-only tools (Robolectric, Roborazzi, Compose test libraries) are not part of the shipped APK.
 

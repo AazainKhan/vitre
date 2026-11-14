@@ -1176,10 +1176,35 @@ private fun ColumnScope.HomeButtonPage(model: HomeModel, cfg: LauncherConfig, f:
             Hint(if (canWrite) "Couldn't enable the accessibility service." else "Grant once from a computer: ${Screensaver.GRANT_COMMAND}, then toggle again. Or enable it in Accessibility settings.")
         }
     }
-    if (HomeSetup.isFireTv) {
+    if (dev.glasslauncher.system.HomeSwitch.path(context) == dev.glasslauncher.system.HomeSwitch.Path.SelfAdb) HomeSwitchSection(model, f)
+    else if (HomeSetup.isFireTv) {
         SectionLabel("Most reliable on Fire TV (from a computer)")
         Hint("${HomeSetup.DISABLE_STOCK_COMMAND}  (undo: ${HomeSetup.RESTORE_STOCK_COMMAND})")
     }
+}
+
+/** The no-root Home switch (P341): VITRE asks the TV's own debugging once, then Home is VITRE's. Original undoes all of it. */
+@Composable
+private fun ColumnScope.HomeSwitchSection(model: HomeModel, f: Modifier) {
+    val context = LocalContext.current
+    val sw = dev.glasslauncher.system.HomeSwitch
+    var on by remember { mutableStateOf(sw.isOn(context)) }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    fun go(restore: Boolean) {
+        busy = true
+        status = if (restore) "Putting the original home screen back…" else "Switching… if the TV asks \"Allow USB debugging?\", choose Always allow."
+        sw.run(context, restore, onWait = { status = "Waiting for you to allow USB debugging on the TV…" }) { o ->
+            // The thread is not the UI thread: state writes are snapshot-safe, and the strings are plain.
+            busy = false; on = sw.isOn(context); status = o.message
+            if (o.needsGuard) model.edit { it.copy(homeGuard = true) }
+        }
+    }
+    SectionLabel("Home Switch")
+    // One row for both states, so the focus stays on it when the switch flips (two call sites would drop it).
+    MenuRow(if (on) "Restore the Original Home" else "Make VITRE the Only Home", { if (!busy) go(on) }, f, value = if (busy) "Working…" else null,
+        help = status ?: if (on) "Turns the TV's own home screen and the apps VITRE turned off back on. Do this before uninstalling VITRE, or the TV may have no home screen."
+        else "No computer needed: VITRE uses the TV's own USB debugging (Developer options) once, sets itself as Home and turns the TV's home screen off. Original undoes it.")
 }
 
 @Composable

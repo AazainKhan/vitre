@@ -222,6 +222,14 @@
             </intent-filter>
         </service>
 
+        <activity
+            android:name=".system.RescueActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":rescue"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
         <service
             android:name=".system.HomeGuardService"
             android:exported="true"

@@ -42,6 +42,11 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        // The crash safety net for the Home switch (P341): the rescue screen runs in its own process and starts nothing else.
+        if (dev.glasslauncher.system.HomeWatchdog.isRescueProcess()) return
+        dev.glasslauncher.system.HomeWatchdog.install(this)
+        // Off the main thread: a prefs read and one exit-reason query, and only worth doing while the Home switch is on.
+        chore(Dispatchers.Default) { dev.glasslauncher.system.HomeWatchdog.checkAtStart(this@GlassApp) }
         dev.glasslauncher.glass.CcAdapt.variantFile = java.io.File(filesDir, "cc-glass")
         dev.glasslauncher.ui.NetworkEpoch.register(this)
         // A previous run that crashed while Glass held the TV muted for Sonos left it muted: undo that.
