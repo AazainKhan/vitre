@@ -289,6 +289,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         internal fun prop(name: String) = runCatching {
             Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, name, "0") == "1"
         }.getOrDefault(false)
+
         const val FRAME_MS = 33L
         /** 20 pi: every sine of the flow counter in the shaders (in tenths) and every hue (in whole turns of 1/FP) comes round at once, so the wrap is invisible. */
         private const val FLOW_PERIOD = 62.831852f
