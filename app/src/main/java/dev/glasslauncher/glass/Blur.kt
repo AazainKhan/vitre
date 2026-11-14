@@ -140,7 +140,7 @@ object Blur {
         if (strength <= 0f) return
         val scale = if (light) 1f - 0.5f * strength else 1f - 0.55f * strength
         val offset = if (light) 255f * 0.5f * strength else 0f
-        // Native: bit-exact with the matrix below, 62 -> 13 ms over a ladder bake on the stick.
+        // Native: within 1 level of the matrix below on opaque pixels (translucent ones differ by premultiplied rounding), 62 -> 13 ms over a ladder bake on the stick.
         if (NativeImage.ok && NativeImage.scaleOffset(bitmap, scale, offset)) return
         val m = ColorMatrix(floatArrayOf(
             scale, 0f, 0f, 0f, offset,
