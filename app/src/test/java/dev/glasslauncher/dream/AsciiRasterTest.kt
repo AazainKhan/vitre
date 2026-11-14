@@ -3,6 +3,7 @@ package dev.glasslauncher.dream
 import android.graphics.Bitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -73,5 +74,14 @@ class AsciiRasterTest {
         assertTrue("a near-black is lifted", (dark shr 16 and 255) > 0x30)
         assertEquals("white stays", 0xFFFFFFFF.toInt(), AsciiRaster.lift(0xFFFFFFFF.toInt()))
         assertTrue("and nothing gets darker", (AsciiRaster.lift(0xFFFF0000.toInt()) shr 8 and 255) >= 0)
+    }
+
+    @Test fun releaseGivesBothBitmapsBack() {
+        val (r, frames) = raster("ab", "cd")
+        frames.next()
+        val shown = r.draw(frames)
+        assertFalse(shown.isRecycled)
+        r.release()
+        assertTrue("the bitmap that was on show is freed once released (P350)", shown.isRecycled)
     }
 }

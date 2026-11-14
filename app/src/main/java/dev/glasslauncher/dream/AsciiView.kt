@@ -30,6 +30,7 @@ class AsciiView(context: Context, private val cfg: ScreensaverConfig) : View(con
     private var started = false
     private var thread: HandlerThread? = null
     private var worker: Handler? = null
+    @Volatile private var raster: AsciiRaster? = null
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(220, 255, 255, 255); textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 13f, resources.displayMetrics)
@@ -52,9 +53,14 @@ class AsciiView(context: Context, private val cfg: ScreensaverConfig) : View(con
     override fun stop() {
         started = false
         scope.cancel()
-        worker?.removeCallbacksAndMessages(null)
-        thread?.quitSafely()
-        thread = null; worker = null; front = null
+        val w = worker; val t = thread; val r = raster
+        thread = null; worker = null; raster = null; front = null
+        postInvalidateOnAnimation()   // the last draw shows no bitmap
+        if (w == null) { t?.quitSafely(); return }
+        w.removeCallbacksAndMessages(null)
+        // The bitmaps go back once no frame that showed one can still be on its way to the screen (the display list that held it is replaced by the
+        // draw above; about a dozen frames at 30 fps is ample). The worker runs one job at a time, so a tick that was in flight finishes first.
+        w.postDelayed({ r?.release(); t?.quitSafely() }, RELEASE_DELAY_MS)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -77,6 +83,7 @@ class AsciiView(context: Context, private val cfg: ScreensaverConfig) : View(con
         handler.post {
             val frames = p.frames()
             val raster = AsciiRaster(p, cw, if (h.cell == "square") cw else 2 * cw)
+            this.raster = raster
             val still = h.loop == "still" || h.n == 1
             val frameMs = 1000L / h.fps
             var costSum = 0L; var costMax = 0L; var count = 0
@@ -106,5 +113,5 @@ class AsciiView(context: Context, private val cfg: ScreensaverConfig) : View(con
         message?.let { canvas.drawText(it, width / 2f, height / 2f, text) }
     }
 
-    private companion object { const val LOG_EVERY = 120 }
+    private companion object { const val LOG_EVERY = 120; const val RELEASE_DELAY_MS = 400L }
 }

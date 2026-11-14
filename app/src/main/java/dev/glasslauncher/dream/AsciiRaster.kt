@@ -37,6 +37,15 @@ class AsciiRaster(piece: AsciiPiece, private val cellW: Int, private val cellH: 
     private var tiles = arrayOfNulls<ShortArray>(0)
     private val glyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.MONOSPACE; textSize = cellH * 0.78f; textAlign = Paint.Align.CENTER; color = -1 }
 
+    /**
+     * Gives the two bitmaps back (P350: HWUI had uploaded each as a texture and kept them, about 24 MB of Graphics, until the next saver
+     * evicted them). Call it from the thread that draws, after the last frame that could show one: a recycled bitmap must not be drawn.
+     */
+    fun release() {
+        bitmaps.forEach { it.recycle() }
+        tiles = arrayOfNulls(0)
+    }
+
     /** Draws the cells [frames] changed into the picture, copies it into the bitmap that is not on show, and returns that bitmap. */
     fun draw(frames: AsciiPiece.Frames): Bitmap {
         for (k in 0 until frames.dirtyCount) {
