@@ -17,9 +17,11 @@
 #
 # GUARANTEED RESTORE: the script restores on exit, on error, on Ctrl-C and on a lost session (trap), and `restore` can always be run by
 # hand. The rooted state it puts back, and verifies: com.amazon.tv.launcher and com.amazon.firehomestarter DISABLED, VITRE the HOME
-# activity, debug.vitre.noroot cleared, the app's switch record cleared. Last resort: reboot; /data/adb/service.d/start-launcher.sh
+# activity, debug.vitre.noroot cleared, the app's switch record cleared, and the app's own key REMOVED from /data/misc/adb/adb_keys (as root,
+# matched by its content, verified gone, every other key untouched): the run leaves no permanent self-ADB channel on the stick. Last resort: reboot; /data/adb/service.d/start-launcher.sh
 # re-disables the Amazon launcher and starts VITRE through the HOME intent at boot. At no point is there no Home: the Amazon launcher is
-# enabled before VITRE's switch runs, and only the final restore disables it again.
+# enabled before VITRE's switch runs, and only the final restore disables it again. Only the launcher is enabled as the stand-in, never the home starter,
+# so no setup or remote-pairing screen can start.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/device.sh"
@@ -41,6 +43,53 @@ su() { adb -s "$ANDROID_SERIAL" shell su -c "'$*'" | tr -d '\r'; }
 home_now() { sh "cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1"; }
 disabled() { sh "pm list packages -d" | sed 's/^package://' | grep -E '^(com.amazon.tv.launcher|com.amazon.firehomestarter)$' | sort | tr '\n' ' '; }
 
+# The app's own key, in adbd's format, from files/adbkey.pub (the X.509 public key the app made); empty if the app never made one.
+app_key_blob() {
+  local der="$OUT/adbkey.pub.der" mod
+  mkdir -p "$OUT"
+  adb -s "$ANDROID_SERIAL" shell "su -c 'cat /data/data/$PKG/files/adbkey.pub'" > "$der" 2>/dev/null
+  [ -s "$der" ] || return 0
+  mod="$(openssl rsa -pubin -inform DER -noout -modulus < "$der" 2>/dev/null | sed 's/^Modulus=//')"
+  [ -n "$mod" ] || return 0
+  python3 - "$mod" <<'PY'
+import base64, struct, sys
+n = int(sys.argv[1], 16); r32 = 1 << 32
+n0inv = (-pow(n, -1, r32)) % r32
+blob = struct.pack('<II', 64, n0inv) + n.to_bytes(256, 'little') + pow(2, 4096, n).to_bytes(256, 'little') + struct.pack('<I', 65537)
+print(base64.b64encode(blob).decode())
+PY
+}
+
+# Take the app's key out of adbd's key file (as root, in place: same inode, owner and label), leave every other key alone, and verify.
+# The framework's own "always allow" record (adb_temp_keys.xml) is edited too when it is plain text; where it is the binary form (Android 12 and up)
+# or the framework still holds the key in memory, a reboot clears it: adbd itself reads adb_keys on every connection, so this revokes the channel.
+remove_app_key() {
+  local b64 f=/data/misc/adb/adb_keys before after
+  b64="$(app_key_blob)"
+  if [ -z "$b64" ]; then say "  app key: none (the app never made one, or it could not be read)"; return 0; fi
+  before="$(su "grep -c . $f" 2>/dev/null | tr -d '[:space:]')"
+  if [ "$(su "grep -c -F $b64 $f" 2>/dev/null | tr -d '[:space:]')" = "0" ]; then say "  app key: not in adb_keys (nothing to remove)"; return 0; fi
+  su "cp $f /data/local/tmp/adb_keys.before-noroot; grep -v -F $b64 $f > /data/local/tmp/adb_keys.new; cat /data/local/tmp/adb_keys.new > $f; rm -f /data/local/tmp/adb_keys.new" >/dev/null 2>&1
+  after="$(su "grep -c . $f" 2>/dev/null | tr -d '[:space:]')"
+  if [ "$(su "grep -c -F $b64 $f" 2>/dev/null | tr -d '[:space:]')" = "0" ] && [ -n "$before" ] && [ "$after" = "$((before - 1))" ]; then
+    say "  app key removed from adb_keys ($before -> $after keys; backup /data/local/tmp/adb_keys.before-noroot)"
+  else
+    say "!! app key NOT removed cleanly (keys $before -> $after); putting the original back" >&2
+    su "cat /data/local/tmp/adb_keys.before-noroot > $f" >/dev/null 2>&1
+    KEY_REMOVED=0; return 1
+  fi
+  local x=/data/misc/adb/adb_temp_keys.xml
+  if su "head -c 5 $x" 2>/dev/null | grep -q '<?xml'; then
+    su "cp $x /data/local/tmp/adb_temp_keys.before-noroot; grep -v -F $b64 $x > /data/local/tmp/adb_temp_keys.new; cat /data/local/tmp/adb_temp_keys.new > $x; rm -f /data/local/tmp/adb_temp_keys.new" >/dev/null 2>&1
+    say "  framework key record: entry removed (text form)"
+  else
+    say "  framework key record: binary or absent; a reboot clears it (adbd already ignores the key)"
+  fi
+  su "rm -f /data/local/tmp/adb_keys.before-noroot /data/local/tmp/adb_temp_keys.before-noroot" >/dev/null 2>&1
+  return 0
+}
+KEY_REMOVED=1
+
 restore() {
   trap - EXIT INT TERM HUP
   say "== restore (rooted setup)"
@@ -52,12 +101,13 @@ restore() {
   sh "am force-stop $PKG" >/dev/null 2>&1
   su "rm -f /data/data/$PKG/shared_prefs/homeswitch.xml" >/dev/null 2>&1
   sh "am start -n $HOME_ACT -a android.intent.action.MAIN -c android.intent.category.HOME" >/dev/null 2>&1
+  remove_app_key   # the run must leave no self-ADB channel on the stick
   sleep 3
   local h d; h="$(home_now)"; d="$(disabled)"
-  if [ "$h" = "$HOME_ACT" ] && [ "$d" = "com.amazon.firehomestarter com.amazon.tv.launcher " ]; then
-    say "restored and verified: HOME is $h; disabled: $d"; return 0
+  if [ "$h" = "$HOME_ACT" ] && [ "$d" = "com.amazon.firehomestarter com.amazon.tv.launcher " ] && [ "$KEY_REMOVED" = 1 ]; then
+    say "restored and verified: HOME is $h; disabled: $d; the app's key is not in adb_keys"; return 0
   fi
-  say "!! RESTORE NOT VERIFIED: HOME is '$h', disabled: '$d'. Run: scripts/stick-noroot-home restore   (or reboot: start-launcher.sh does it)" >&2
+  say "!! RESTORE NOT VERIFIED: HOME is '$h', disabled: '$d', key removed: $KEY_REMOVED. Run: scripts/stick-noroot-home restore   (or reboot: start-launcher.sh does it)" >&2
   return 1
 }
 
@@ -82,7 +132,7 @@ else
 fi
 
 say "== 1. make the stick look stock: Amazon's launcher on and the default home (a stand-in for a Fire that was never rooted)"
-act "enable ${STOCK[*]} (as root)" su "pm enable ${STOCK[0]}; pm enable ${STOCK[1]}"
+act "enable ONLY ${STOCK[0]} (as root; the home starter stays off, so no setup or remote-pairing screen can start)" su "pm enable ${STOCK[0]}"
 act "make Amazon's launcher the HOME activity (as root)" su "c=\$(cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ${STOCK[0]} | tail -n 1); cmd package set-home-activity \$c"
 [ "$DRY" = 1 ] || { sleep 2; say "  HOME is now: $(home_now)  (expected com.amazon.tv.launcher/...)"; }
 
@@ -115,4 +165,4 @@ act "ask the app to restore" sh "am broadcast -n $PKG/.system.DebugDumpReceiver 
 [ "$DRY" = 1 ] || { for i in $(seq 1 24); do sleep 5; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch | grep -q ' restore: ' && break; done; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch | tail -4 | tee "$OUT/restore-log.txt"; }
 say "  READ: 'restore: true' and HOME back to Amazon's, both packages enabled = the undo works."
 say "== 6. back to the rooted setup (always)"
-if [ "$DRY" = 1 ]; then say "  - restore: disable both Amazon packages, VITRE the home, clear the props and the app's switch record, verify"; else restore; exit $?; fi
+if [ "$DRY" = 1 ]; then say "  - restore: disable both Amazon packages, VITRE the home, clear the props and the app's switch record, REMOVE the app's key from adb_keys, verify all of it"; else restore; exit $?; fi

@@ -6,6 +6,10 @@ the header of the script first; this is the short version.
 - `plan` prints every step and touches nothing. `probe` asks only what Fire lets the plain shell user do to its launcher.
   `run` also runs the app's own switch and undo (one prompt on the TV needs a person). `restore` always puts it back.
 - It needs a build with `debug.vitre.noroot` (this branch), the stick lock, and Magisk su for the setup and the restore.
+- Only Amazon's launcher is enabled as the stock stand-in, never its home starter (no setup or remote-pairing screen can start).
+- The run leaves no self-ADB channel: restore removes the app's own key from `/data/misc/adb/adb_keys` as root (matched by its content, every
+  other key left alone, verified gone, the original put back if the edit is not clean), and edits the framework's text key record when there is
+  one; a reboot clears the framework's in-memory copy. adbd reads `adb_keys` on every connection, so removing it revokes the channel at once.
 - Restore is guaranteed three ways: a trap on exit, error and Ctrl-C; `restore` by hand; and a reboot (`start-launcher.sh`).
   It verifies the end state: Amazon's launcher and home starter disabled, VITRE the HOME activity.
 
