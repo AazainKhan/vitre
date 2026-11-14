@@ -10,6 +10,7 @@ Recipes (what we ran by hand during P334-P345):
               layer never hidden (SF flag 0x1), a real pause shows the glow (not 0,0,0) and stops GL.
   viz-ms      GPU draw+finish per visualizer style (debug.vitre.viz.stats) against a budget.
   saver-mem   Home PSS/Native/Graphics before and after repeated saver opens: no ratchet.
+  watch-next  P339 on this device, read-only plus a restore: the TV provider's Watch Next, READ_TV_LISTINGS (dialog or pm grant), and whether a row inserted as shell reaches VITRE's Continue Watching.
   idle-home   Home with music paused, 130 s after the last input (past the idle fade): CPU %, RenderThread ticks, frames drawn.
 
 Every run: takes the stick lock, optionally installs (-r only), checks RemoteKeysService, the Now Playing
@@ -365,7 +366,77 @@ def home_press(res):
         adb(f"am force-stop {PKG}"); home(); time.sleep(5)
 
 
-RECIPES = {"viz-black": viz_black, "viz-ms": viz_ms, "saver-mem": saver_mem, "idle-home": idle_home, "home-press": home_press}
+WN_URI = "content://android.media.tv/watch_next_program"
+WN_TITLE = "StickcheckTestRow"
+WN_PERM = "android.permission.READ_TV_LISTINGS"
+
+
+def watch_next(res):
+    """P339 on this device (read-only plus a restore): does the TV provider expose Watch Next, does READ_TV_LISTINGS show a dialog or need
+    pm grant, and does a row inserted as shell reach VITRE's own Continue Watching read? Needs a build with the watch_next probe on the
+    debug receiver (P339). It inserts one row titled StickcheckTestRow as the shell user and always deletes it (by its id: the provider allows
+    no selection, and a delete only touches the caller's own rows); it revokes the permission again if it was not granted when it started."""
+    def rows():
+        out = adb(f"content query --uri {WN_URI} --projection _id:package_name:title")
+        return out, [(m.group(1), m.group(2), m.group(3)) for m in re.finditer(r"_id=(\d+), package_name=([\w.]+), title=([^\n]*)", out)]
+
+    def vitre_probe():
+        m = re.search(r'data="([^"]*)"', adb(f"am broadcast -n {RECV} --ez watch_next true"))
+        return m.group(1) if m else ""
+
+    was_granted = None
+    try:
+        # 1. The provider and its rows (info: which apps publish Watch Next right now).
+        out, existing = rows()
+        answers = ("No result found" in out or bool(existing)) and "Error" not in out
+        pkgs = {}
+        for _, p, _ in existing:
+            pkgs[p] = pkgs.get(p, 0) + 1
+        res.check("watch-next/provider", answers, existing_rows_by_package=pkgs, sample=scrub(out.strip())[:200])
+        if not answers:
+            return  # nothing to build on: the provider does not answer a shell query
+        # 2. The permission: declared, and at which protection level (dangerous: a runtime grant can be asked for with a dialog).
+        decl = adb("pm list permissions -f") + adb("pm list permissions -f -d")
+        m = re.search(r"permission:" + re.escape(WN_PERM) + r"[\s\S]{0,400}?protectionLevel:(\S+)", decl)
+        res.check("watch-next/permission-declared", bool(m), protection_level=m.group(1) if m else None)
+        # 3. Can the permission dialog show on this TV? (the system's grant activity resolves), and what the app may read now.
+        resolved = adb("cmd package resolve-activity --brief -a android.content.pm.action.REQUEST_PERMISSIONS").strip().splitlines()
+        comp = resolved[-1].strip() if resolved else ""
+        res.check("watch-next/dialog-available", "/" in comp and not comp.startswith("No activity"), component=scrub(comp))
+        first = vitre_probe()
+        was_granted = "available=true" in first if first else None
+        res.check("watch-next/probe", first.startswith(("available=", "error=")), probe_at_start=scrub(first)[:200],
+                  note="" if first else "this build has no watch_next probe (needs P339)")
+        # 4. The shell grant path (what Settings' fallback command does).
+        if was_granted is False:
+            out = adb(f"pm grant {PKG} {WN_PERM}").strip()
+            res.check("watch-next/pm-grant", "available=true" in vitre_probe(), output=scrub(out)[:160])
+        # 5. A row from another package (the shell) in the provider.
+        out = adb(f"content insert --uri {WN_URI} --bind type:i:0 --bind watch_next_type:i:0 --bind title:s:{WN_TITLE} "
+                  f"--bind last_engagement_time_utc_millis:l:{int(time.time() * 1000)} --bind duration_millis:i:3600000 --bind last_playback_position_millis:i:1200000")
+        _, after = rows()
+        ours = [r for r in after if r[2].strip() == WN_TITLE]
+        res.check("watch-next/shell-insert", bool(ours), output=scrub(out.strip())[:160], rows=len(after))
+        # 6. VITRE's own read: the app's Continue Watching feed through the debug receiver.
+        data = vitre_probe()
+        res.check("watch-next/vitre-sees-row", "available=true" in data and WN_TITLE in data, probe=scrub(data)[:200])
+    finally:
+        # Always put it back: the test row deleted by id, the permission as it was.
+        try:
+            for rid, _, title in rows()[1]:
+                if title.strip() == WN_TITLE:
+                    adb(f"content delete --uri {WN_URI}/{rid}")
+            left = [r for r in rows()[1] if r[2].strip() == WN_TITLE]
+        except Exception:
+            left = ["unknown"]
+        if was_granted is False:
+            adb(f"pm revoke {PKG} {WN_PERM}")
+        now = vitre_probe()
+        res.check("watch-next/restored", not left and (was_granted is None or ("available=true" in now) == was_granted),
+                  test_rows_left=len(left), probe_now=scrub(now)[:120], granted_at_start=was_granted)
+
+
+RECIPES = {"watch-next": watch_next, "viz-black": viz_black, "viz-ms": viz_ms, "saver-mem": saver_mem, "idle-home": idle_home, "home-press": home_press}
 
 
 class Result:
@@ -384,7 +455,7 @@ def main():
         i = argv.index("--apk"); apk = argv[i + 1]; del argv[i:i + 2]
     if "--keep" in argv:
         argv.remove("--keep"); keep = True
-    recipes = [r for r in RECIPES if r != "home-press"] if argv == ["all"] else argv  # home-press needs a P342 build
+    recipes = [r for r in RECIPES if r not in ("home-press", "watch-next")] if argv == ["all"] else argv  # home-press needs a P342 build, watch-next a P339 one
     if not recipes or any(r not in RECIPES for r in recipes):
         print(__doc__, file=sys.stderr); sys.exit(2)
 
