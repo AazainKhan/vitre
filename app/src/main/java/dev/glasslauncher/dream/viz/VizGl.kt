@@ -85,6 +85,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         private val fboTex = IntArray(2)
         private val fbo = IntArray(2)
         private var ping = 0
+        private var warm = true   // set again whenever the surface is (re)created
         private val started = SystemClock.uptimeMillis()
         private var failed = false
         private val quad = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)); position(0) }
@@ -119,6 +120,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
                     if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) != GLES20.GL_FRAMEBUFFER_COMPLETE) return fail("framebuffer incomplete")
                 }
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+                warm = true; ping = 0
             }
         }
 
@@ -151,25 +153,33 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, audioTex)
             GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, AudioAnalysis.BANDS, 3, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, audioBytes)
             if (feedback) {
-                val next = 1 - ping
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[next]); GLES20.glViewport(0, 0, W, H)
-                use(program, time, tn)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[ping])
-                GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPrev"), 1)
-                quad(program)
+                // A fresh surface starts from black buffers, and a picture that is built from them takes a second or two to fill the screen:
+                // run the step a few times before the first frame is shown, so the saver never opens (or reopens) on black.
+                if (warm) { warm = false; repeat(WARM_STEPS) { step(time, tn) } }
+                step(time, tn)
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0); GLES20.glViewport(0, 0, W, H)
                 GLES20.glUseProgram(blit)
                 GLES20.glUniform3f(GLES20.glGetUniformLocation(blit, "uTint"), tn[0], tn[1], tn[2])
                 GLES20.glUniform1f(GLES20.glGetUniformLocation(blit, "uVivid"), if (style == VisualizerStyle.Warp) 1f else 0f)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[next])
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[ping])   // the one step() just wrote
                 GLES20.glUniform1i(GLES20.glGetUniformLocation(blit, "uPrev"), 1)
                 quad(blit)
-                ping = next
             } else {
                 use(program, time, tn)
                 quad(program)
             }
             if (stats) measure(t0)
+        }
+
+        /** One feedback pass: the last picture, changed, into the other texture. */
+        private fun step(time: Float, tn: FloatArray) {
+            val next = 1 - ping
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[next]); GLES20.glViewport(0, 0, W, H)
+            use(program, time, tn)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[ping])
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPrev"), 1)
+            quad(program)
+            ping = next
         }
 
         private fun ease(from: Float, to: Float) = from + (to - from) * (if (to > from) 0.8f else 0.35f)
@@ -251,5 +261,7 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
         /** 20 pi: every sine of the flow counter in the shaders (in tenths) and every hue (in whole turns of 1/FP) comes round at once, so the wrap is invisible. */
         private const val FLOW_PERIOD = 62.831852f
         private const val TWO_PI = 6.2831855f
+        /** Feedback passes run before a fresh surface's first frame is shown. */
+        private const val WARM_STEPS = 10
     }
 }

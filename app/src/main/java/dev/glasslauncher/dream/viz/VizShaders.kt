@@ -52,6 +52,8 @@ internal object VizShaders {
             return max(mix(vec3(l), c, sat), 0.0);
         }
         // Brightness past 1 is scaled down with the hue kept, not clipped channel by channel (which turns every hot spot white).
+        // how much headroom a pixel has: 1 where it is dark, 0 where it is already full
+        float room(vec3 c) { return 1.0 - max(c.r, max(c.g, c.b)); }
         vec3 fit(vec3 c) { return c / max(1.0, max(c.r, max(c.g, c.b))); }
         // A slow swirl over the whole screen (the per-pixel sines of the old media-player presets), so the picture flows rather than just scales.
         vec2 swirl(vec2 p, float s) {
@@ -201,20 +203,21 @@ internal object VizShaders {
             const float seg = 1.0471976;
             float a = abs(mod(a0 + uSpin, seg * 2.0) - seg);
             vec2 q = r * vec2(cos(a), sin(a));
-            q *= 0.968 - uKick * 0.035;
+            q *= 0.982 - uKick * 0.03;
             q = rot(0.012 + (uMid - 0.3) * 0.03) * q + swirl(p, 0.004);
             vec3 col = settle(prevAt(q), 0.88, 1.12);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
-            float ring = 0.46 + uKick * 0.12 + wave(fract(a0 / 6.28318 + 0.5)) * 0.10;
-            float d = abs(r - ring);
-            vec3 ink = hue(uFlow * FP * 2.0 + a0 * 0.318 + r * 1.2);
-            float room = 1.0 - max(col.r, max(col.g, col.b));
-            add += ink * exp(-d * 50.0) * (0.7 + 1.3 * uBeat) * (0.4 + room);
+            // rings are born in the middle and travel out past the corners, so the picture is made at the edges as much as in the middle
+            for (int k = 0; k < 4; k++) {
+                float rr = fract(uFlow * FP * 20.0 + float(k) * 0.25) * 1.15;
+                float d = abs(r - rr - uKick * 0.04 + wave(fract(a0 / 6.28318 + 0.5)) * 0.03);
+                add += hue(uFlow * FP * 2.0 + p.x * 0.5 + p.y * 0.35 + float(k) * 0.33) * exp(-d * 48.0) * (0.45 + 1.1 * uBeat) * (0.4 + room(col));
+            }
             float ra = a / seg;
-            add += hue(ra * 0.9 + r * 1.6 + uFlow * FP) * spec(ra * 0.7 + r * 0.25) * smoothstep(0.05, 0.7, r) * 0.55 * (0.4 + room);
-            float d2 = abs(r - (0.16 + uKick * 0.10));
-            add += hue(uFlow * FP * 3.0 + 0.5 + a0 * 0.159) * exp(-d2 * 40.0) * 0.9 * (0.4 + room);
-            add += hue(uFlow * FP * 2.0 + 0.2) * exp(-r * 7.0) * (0.10 + 0.8 * uKick);   // a core that flares on the bass, so the middle is never a hole
+            add += hue(ra * 0.9 + r * 1.6 + uFlow * FP) * spec(ra * 0.7 + r * 0.25) * smoothstep(0.2, 0.9, r) * 0.85 * (0.4 + room(col));
+            add += hue(uFlow * FP * 3.0 + p.x * 0.6 - p.y * 0.4 + 0.4) * smoothstep(0.5, 1.0, r) * (0.18 + 0.5 * uMid) * (0.4 + room(col));   // the edges keep their own colour
+            add += hue(uFlow * FP * 2.0 + 0.2) * exp(-r * 10.0) * (0.06 + 0.35 * uKick);   // a core that flares on the bass
+            add += hue(uFlow * FP * 2.0 + p.x * 0.5 + p.y * 0.35 + 0.5) * 0.05;   // a floor of colour everywhere: the picture can fade, never go black
             gl_FragColor = vec4(fit(col + add * 0.34), 1.0);
         }
     """
