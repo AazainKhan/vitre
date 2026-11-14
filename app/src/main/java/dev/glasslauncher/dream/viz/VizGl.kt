@@ -47,7 +47,8 @@ class VizGlView(context: Context, private val style: VisualizerStyle, private va
     }
 
     // Why was the surface hidden? (the stick hid it about 20 s in while the capture and the GL thread were healthy): who changed what, and from where.
-    private fun why(what: String) = android.util.Log.i("VitreViz", "$what | ${chain(this)}", Throwable())
+    // One line each in release; the stack (about 25 lines) only with `setprop debug.vitre.viz.stats 1`.
+    private fun why(what: String) { val line = "$what | ${chain(this)}"; if (stats) android.util.Log.i("VitreViz", line, Throwable()) else android.util.Log.i("VitreViz", line) }
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)

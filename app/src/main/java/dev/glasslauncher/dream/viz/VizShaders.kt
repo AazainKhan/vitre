@@ -52,6 +52,8 @@ internal object VizShaders {
             return max(mix(vec3(l), c, sat), 0.0);
         }
         // Brightness past 1 is scaled down with the hue kept, not clipped channel by channel (which turns every hot spot white).
+        // a smoothed triangle wave with sine's period and range (flat at the peaks like a sine): no sine call
+        float tri(float x) { float t = abs(fract(x * 0.159155 + 0.5) * 2.0 - 1.0) * 2.0 - 1.0; return t * (1.5 - 0.5 * t * t); }
         // how much headroom a pixel has: 1 where it is dark, 0 where it is already full
         float room(vec3 c) { return 1.0 - max(c.r, max(c.g, c.b)); }
         vec3 fit(vec3 c) { return c / max(1.0, max(c.r, max(c.g, c.b))); }
@@ -122,7 +124,7 @@ internal object VizShaders {
                 float band = spec(0.02 + f * 0.22);
                 float amp = 0.16 + band * 0.44 + uKick * 0.10;
                 float k = 1.7 + f * 0.8;
-                float y = amp * sin(r.x * k + uFlow * (0.4 + f * 0.1) + f * 1.9) + 0.45 * amp * sin(r.x * k * 2.1 - uFlow * 0.3 + f * 0.7);
+                float y = amp * sin(r.x * k + uFlow * (0.4 + f * 0.1) + f * 1.9) + 0.45 * amp * tri(r.x * k * 2.1 - uFlow * 0.3 + f * 0.7);   // the overtone is a triangle wave: half the sines per pixel, the same shape to the eye
                 float w = 0.020 + band * 0.050;
                 float d = abs(r.y - y);
                 vec3 c = hue(f * 0.23 + uFlow * FP * 2.0 + band * 0.2);

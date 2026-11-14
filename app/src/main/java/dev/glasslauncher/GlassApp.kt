@@ -129,6 +129,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
     private var hiddenRelease: kotlinx.coroutines.Job? = null
 
     fun homeHidden() {
+        homeFront = false
         dev.glasslauncher.ui.GpuCaches.homeHidden()
         hiddenRelease?.cancel()
         hiddenRelease = scope.launch {
@@ -143,9 +144,22 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
      * saver opened: P334). Counted here by the saver hosts; while one is up the release keeps the memory work and skips that trim.
      */
     private val ownScreens = java.util.concurrent.atomic.AtomicInteger(0)
-    fun ownScreenUp(up: Boolean) { if (up) ownScreens.incrementAndGet() else ownScreens.updateAndGet { maxOf(0, it - 1) } }
+    @Volatile private var homeFront = false
+    private var afterSaver: kotlinx.coroutines.Job? = null
+
+    fun ownScreenUp(up: Boolean) {
+        if (up) { ownScreens.incrementAndGet(); afterSaver?.cancel(); afterSaver = null; return }
+        if (ownScreens.updateAndGet { maxOf(0, it - 1) } != 0) return
+        // The saver's bitmaps (ASCII frames, slideshow pictures) and decoder buffers are freed only by a collection, and none runs while a saver is up
+        // (above). So once Home has been back for a while with no saver, collect once: memory returns to where it was before the saver.
+        afterSaver = scope.launch {
+            kotlinx.coroutines.delay(AFTER_SAVER_GC_MS)
+            if (ownScreens.get() == 0 && homeFront) kotlinx.coroutines.withContext(Dispatchers.Default) { System.gc() }
+        }
+    }
 
     fun homeShown() {
+        homeFront = true
         dev.glasslauncher.ui.GpuCaches.homeShown()
         hiddenRelease?.cancel()
         hiddenRelease = null
@@ -168,6 +182,7 @@ class GlassApp : Application(), SingletonImageLoader.Factory {
 
     private companion object {
         const val HIDDEN_RELEASE_MS = 20_000L
+        const val AFTER_SAVER_GC_MS = 15_000L
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader =

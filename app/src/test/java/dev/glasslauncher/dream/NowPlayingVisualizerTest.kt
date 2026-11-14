@@ -14,6 +14,7 @@ import dev.glasslauncher.widgets.NowPlaying
 import dev.glasslauncher.widgets.NowPlayingFixture
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
+import android.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -146,6 +147,19 @@ class NowPlayingVisualizerTest {
         repeat(12) { src.push!!.invoke(data(fft())); idle(500) }
         assertEquals("never restarted while nothing is playing", before, src.starts)
         layer.halt()
+    }
+
+    @Test fun theGlowTakesTheCoversHueNotItsGreyAverage() {
+        // half red, half blue: the 1x1 average is a murky purple-grey, the dominant hue is not
+        val red = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888).also { b ->
+            val c = android.graphics.Canvas(b); c.drawColor(Color.rgb(200, 30, 30)); c.drawRect(0f, 0f, 20f, 64f, android.graphics.Paint().apply { color = Color.rgb(40, 40, 60) })
+        }
+        val tint = glowTint(red); val hsv = FloatArray(3); Color.colorToHSV(tint, hsv)
+        assertTrue("a red cover glows red (hue ${hsv[0]})", hsv[0] < 20f || hsv[0] > 340f)
+        assertTrue("and clearly coloured, not R=G=B", hsv[1] > 0.5f)
+        val grey = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888).also { it.eraseColor(Color.rgb(90, 90, 90)) }
+        val g = glowTint(grey)
+        assertEquals("a cover with no colour stays neutral", Color.red(g), Color.green(g))
     }
 
     @Test fun withNoGpuTheCanvasBarsRunAndSilenceIsReportedOnce() {

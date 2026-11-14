@@ -66,6 +66,26 @@ private fun boxBlur(src: IntArray, dst: IntArray, n: Int, radius: Int, horizonta
 }
 
 /** The cover's average colour, lifted towards white so bars stay visible on the dimmed backdrop. */
+/**
+ * The colour of the paused glow: the cover's dominant hue at a fixed vivid saturation. The 1 x 1 average [lightTint] takes goes grey
+ * for a cover with several hues (Wish You Were Here came out R=G=B), so this weighs a 16 x 16 copy by saturation and brightness and
+ * averages the hues as angles. A cover with no colour at all falls back to [lightTint].
+ */
+internal fun glowTint(art: Bitmap): Int {
+    val small = Bitmap.createScaledBitmap(art, 16, 16, true)
+    val hsv = FloatArray(3)
+    var x = 0.0; var y = 0.0; var weight = 0.0
+    for (j in 0 until 16) for (i in 0 until 16) {
+        Color.colorToHSV(small.getPixel(i, j), hsv)
+        val w = (hsv[1] * hsv[2]).toDouble()
+        val a = Math.toRadians(hsv[0].toDouble())
+        x += Math.cos(a) * w; y += Math.sin(a) * w; weight += w
+    }
+    if (weight < 4.0) return lightTint(art)   // under about 4 of 256 pixels' worth of colour: grey is the honest answer
+    val hue = ((Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0).toFloat()
+    return Color.HSVToColor(floatArrayOf(hue, 0.65f, 0.95f))
+}
+
 internal fun lightTint(art: Bitmap): Int {
     val c = Bitmap.createScaledBitmap(art, 1, 1, true).getPixel(0, 0)
     fun mix(v: Int) = (v + (255 - v) * 0.45f).toInt()
@@ -267,7 +287,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     }
     /** A paused screen is not black: once the GL view is gone (no frames, no GPU) this one still View shows a soft glow of the cover's colour. */
     private val pauseFloor = View(context).apply { visibility = GONE }
-    private var lastTint = Color.WHITE
+    private var lastGlow = Color.WHITE
     private val note = TextView(context).apply { setTextColor(Color.argb(170, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER; visibility = GONE }
     /** With the visualizer on it owns the screen: no centred cover, no seek bar. The track is a small corner card for a few seconds on a change. */
     private val visualizerMode = spectrum != null
@@ -310,7 +330,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
     private val HALT_DELAY_MS = 2_000L
     private val haltBars = Runnable {
         bars?.halt(); note.visibility = GONE
-        pauseFloor.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.argb(46, Color.red(lastTint), Color.green(lastTint), Color.blue(lastTint)), Color.argb(14, Color.red(lastTint), Color.green(lastTint), Color.blue(lastTint)))).apply {
+        pauseFloor.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.argb(78, Color.red(lastGlow), Color.green(lastGlow), Color.blue(lastGlow)), Color.argb(22, Color.red(lastGlow), Color.green(lastGlow), Color.blue(lastGlow)))).apply {
             gradientType = GradientDrawable.RADIAL_GRADIENT; gradientRadius = context.resources.displayMetrics.widthPixels * 0.6f
             setGradientCenter(0.5f, 0.5f)
         }
@@ -338,7 +358,7 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
             clock.shown(false); cornerClock.shown(cfg.showClock); content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE
             if (shownKey != n.key || shownArt !== n.art) {
                 shownKey = n.key; shownArt = n.art
-                n.art?.takeIf { !n.artIsIcon }?.let { lastTint = lightTint(it); bars?.setTint(lastTint) }
+                n.art?.takeIf { !n.artIsIcon }?.let { lastGlow = glowTint(it); bars?.setTint(lightTint(it)) }
             }
             return
         }
