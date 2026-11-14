@@ -54,6 +54,20 @@ class DebugDumpReceiver : BroadcastReceiver() {
             resultData = "started: adb logcat -s VitreHomeSwitch"
             return
         }
+        // What VITRE itself can read from the TV's Watch Next (P339; scripts/stickcheck watch-next): `--ez watch_next true`. The result says whether the app
+        // may read it and, if so, how many titles Continue Watching found and the first few.
+        if (intent.getBooleanExtra("watch_next", false)) {
+            val done = goAsync()
+            val app = context.applicationContext as dev.glasslauncher.GlassApp
+            app.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val msg = try {
+                    if (!dev.glasslauncher.featured.TvRows.watchNextAvailable(context)) "available=false"
+                    else dev.glasslauncher.featured.TvRows.continueWatching(context).items.let { items -> "available=true items=${items.size} titles=${items.take(5).joinToString("|") { it.title }}" }
+                } catch (e: Exception) { "error=${e.javaClass.simpleName}: ${e.message}" }
+                done.setResultData(msg); done.finish()
+            }
+            return
+        }
         // A device's page for the device tests: `--es open_device gamepad:Xbox` (or remote:Name) opens Settings on it.
         intent.getStringExtra("open_device")?.let { spec ->
             val kind = if (spec.startsWith("remote:")) dev.glasslauncher.home.PageKind.Remote else dev.glasslauncher.home.PageKind.Gamepad
