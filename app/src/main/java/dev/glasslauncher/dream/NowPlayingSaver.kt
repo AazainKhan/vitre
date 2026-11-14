@@ -303,12 +303,18 @@ class NowPlayingSaverView(context: Context, private val cfg: ScreensaverConfig, 
 
     override fun stop() { scope.cancel(); handler.removeCallbacksAndMessages(null); bars?.halt(); infoCard?.stop(); clock.shown(false); cornerClock.shown(false) }
 
+    private val HALT_DELAY_MS = 2_000L
+    private val haltBars = Runnable { bars?.halt(); note.visibility = GONE }
+
     private fun show(n: NowPlaying?) {
         val was = np
         np = n
         handler.removeCallbacks(tick)
         // The visualizer listens only while music plays; the rest of the time nothing runs.
-        if (n?.playing == true) bars?.run() else { bars?.halt(); note.visibility = GONE }
+        // A buffering session still counts, and anything else waits 2 s before the GL view is torn down: a blink in the session's
+        // state must not black the screen (the view is rebuilt, which takes a moment on the stick).
+        handler.removeCallbacks(haltBars)
+        if (n?.sounding == true) bars?.run() else handler.postDelayed(haltBars, HALT_DELAY_MS)
         if (n == null) {
             content.visibility = GONE; backdrop.visibility = GONE; dim.visibility = GONE; clock.shown(true); cornerClock.shown(false)
             shownKey = null; shownArt = null

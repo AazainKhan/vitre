@@ -98,6 +98,8 @@ data class NowPlaying(
     val like: Like = Like.None,
     /** [art] is the app's own icon (no cover was published): fine in the art slot, never baked into Home's backdrop. */
     val artIsIcon: Boolean = false,
+    /** Playing, or the session says it is buffering (Spotify does between tracks and after a resume while sound may still come): the visualizer stays up for both. */
+    val sounding: Boolean = playing,
 ) {
     /** What play/pause and skip do: a media session's controls, or AirPlay's transport. */
     interface Controls {
@@ -201,6 +203,7 @@ object NowPlayingSource {
             fun publish() {
                 // Playing first; else a paused session (so it can be resumed from Control Center).
                 val c = watched.keys.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+                    ?: watched.keys.firstOrNull { it.playbackState?.state == PlaybackState.STATE_BUFFERING }
                     ?: watched.keys.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PAUSED }
                 val meta = c?.metadata
                 val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
@@ -256,6 +259,7 @@ object NowPlayingSource {
                         positionAt = NowPlayingCaps.updatedAt(state?.lastPositionUpdateTime ?: 0, now),
                         speed = NowPlayingCaps.speed(state?.playbackSpeed ?: 1f),
                         playing = state?.state == PlaybackState.STATE_PLAYING,
+                        sounding = state?.state == PlaybackState.STATE_PLAYING || state?.state == PlaybackState.STATE_BUFFERING,
                         controller = SessionControls(c.transportControls),
                         canSeek = NowPlayingCaps.canSeek(actions, duration),
                         like = NowPlayingCaps.like(actions, c.ratingType, userLiked, custom),

@@ -45,9 +45,9 @@ class NowPlayingVisualizerTest {
     private fun idle(ms: Long = 50) = shadowOf(android.os.Looper.getMainLooper()).idleFor(ms, TimeUnit.MILLISECONDS)
 
     private val controls = object : NowPlaying.Controls { override fun play() {}; override fun pause() {}; override fun next() {}; override fun previous() {} }
-    private fun np(playing: Boolean) = NowPlaying(
+    private fun np(playing: Boolean, sounding: Boolean = playing) = NowPlaying(
         title = "T", artist = "A", album = null, packageName = "p", art = null, durationMs = 200_000, positionMs = 50_000,
-        positionAt = android.os.SystemClock.elapsedRealtime(), speed = 1f, playing = playing, controller = controls,
+        positionAt = android.os.SystemClock.elapsedRealtime(), speed = 1f, playing = playing, controller = controls, sounding = sounding,
     )
 
     @After fun clear() { NowPlayingFixture.state = null }
@@ -141,7 +141,13 @@ class NowPlayingVisualizerTest {
         state.value = np(playing = true); idle(1000)
         assertTrue("music: it listens", src.running)
         state.value = np(playing = false); idle(1000)
-        assertFalse("paused: it stops", src.running)
+        assertTrue("a blink in the session's state does not tear it down (P336)", src.running)
+        state.value = np(playing = true); idle(1000)
+        assertTrue(src.running)
+        state.value = np(playing = false, sounding = true); idle(5000)
+        assertTrue("buffering between tracks still shows the visualizer", src.running)
+        state.value = np(playing = false); idle(2500)
+        assertFalse("paused for good: it stops", src.running)
         state.value = np(playing = true); idle(1000)
         saver.stop()
         assertFalse("the saver closed: it is released", src.running)

@@ -207,17 +207,19 @@ internal object VizShaders {
             q = rot(0.012 + (uMid - 0.3) * 0.03) * q + swirl(p, 0.004);
             vec3 col = settle(prevAt(q), 0.88, 1.12);
             vec3 add = vec3(0.0);   // what is drawn this frame; it is added at a fraction, as the fade lets it build up many times over
-            // rings are born in the middle and travel out past the corners, so the picture is made at the edges as much as in the middle
-            for (int k = 0; k < 4; k++) {
-                float rr = fract(uFlow * FP * 20.0 + float(k) * 0.25) * 1.15;
-                float d = abs(r - rr - uKick * 0.04 + wave(fract(a0 / 6.28318 + 0.5)) * 0.03);
-                add += hue(uFlow * FP * 2.0 + p.x * 0.5 + p.y * 0.35 + float(k) * 0.33) * exp(-d * 48.0) * (0.45 + 1.1 * uBeat) * (0.4 + room(col));
+            // two rings are born in the middle and travel out past the corners; their radius wobbles with the angle (a flower, not a bullseye)
+            float w = wave(fract(a0 / 6.28318 + 0.5)) * 0.03 + sin(a0 * 3.0 + uFlow * 0.3) * 0.08 - uKick * 0.04;
+            float gain = (0.45 + 1.1 * uBeat) * (0.4 + room(col));
+            vec3 pos = hue(uFlow * FP * 2.0 + p.x * 0.5 + p.y * 0.35);   // colour by place, so the corners differ from the middle
+            for (int k = 0; k < 2; k++) {
+                float rr = fract(uFlow * FP * 20.0 + float(k) * 0.5) * 1.15;
+                add += hue(uFlow * FP * 2.0 + p.x * 0.5 + p.y * 0.35 + float(k) * 0.5) * exp(-abs(r - rr - w) * 48.0) * gain;
             }
             float ra = a / seg;
             add += hue(ra * 0.9 + r * 1.6 + uFlow * FP) * spec(ra * 0.7 + r * 0.25) * smoothstep(0.2, 0.9, r) * 0.85 * (0.4 + room(col));
-            add += hue(uFlow * FP * 3.0 + p.x * 0.6 - p.y * 0.4 + 0.4) * smoothstep(0.5, 1.0, r) * (0.18 + 0.5 * uMid) * (0.4 + room(col));   // the edges keep their own colour
-            add += hue(uFlow * FP * 2.0 + 0.2) * exp(-r * 10.0) * (0.06 + 0.35 * uKick);   // a core that flares on the bass
-            add += hue(uFlow * FP * 2.0 + p.x * 0.5 + p.y * 0.35 + 0.5) * 0.05;   // a floor of colour everywhere: the picture can fade, never go black
+            // the edges keep their own colour, and the floor under it means the picture can fade but never go black
+            add += pos.brg * (0.05 + smoothstep(0.5, 1.0, r) * (0.18 + 0.5 * uMid) * (0.4 + room(col)));
+            add += pos.gbr * exp(-r * 10.0) * (0.06 + 0.35 * uKick);   // a core that flares on the bass
             gl_FragColor = vec4(fit(col + add * 0.34), 1.0);
         }
     """
