@@ -45,6 +45,15 @@ class DebugDumpReceiver : BroadcastReceiver() {
             }
             return
         }
+        // The no-root Home switch from adb (P341; docs/p341-no-root-test.md): `--es home_switch on|restore`, with `setprop debug.vitre.noroot 1` set, runs the
+        // self-ADB engine exactly as Settings does and logs its outcome under VitreHomeSwitch.
+        intent.getStringExtra("home_switch")?.let { mode ->
+            if (!HomeSwitch.noRootForced()) { resultData = "set debug.vitre.noroot 1 first"; return }
+            // Not held open (the TV's prompt can take a minute, longer than a receiver may run): the outcome is the VitreHomeSwitch log line.
+            HomeSwitch.run(context, restore = mode == "restore", onWait = { android.util.Log.i("VitreHomeSwitch", "waiting for Allow USB debugging on the TV") }) { }
+            resultData = "started: adb logcat -s VitreHomeSwitch"
+            return
+        }
         // A device's page for the device tests: `--es open_device gamepad:Xbox` (or remote:Name) opens Settings on it.
         intent.getStringExtra("open_device")?.let { spec ->
             val kind = if (spec.startsWith("remote:")) dev.glasslauncher.home.PageKind.Remote else dev.glasslauncher.home.PageKind.Gamepad

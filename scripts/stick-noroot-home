@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# P341 on a stock-Fire stand-in: run the no-root Home switch (self-ADB) on OUR rooted stick, then put the rooted setup back.
+#
+#   scripts/stick-noroot-home plan      print every step and what it changes; touches nothing
+#   scripts/stick-noroot-home probe     steps 0-3 only: what does Fire let the plain adb shell user do to its launcher? (no app involved)
+#   scripts/stick-noroot-home run       steps 0-5: also the app's own self-ADB switch and undo (needs a person for one prompt)
+#   scripts/stick-noroot-home restore   put the rooted setup back (safe to run any time, any number of times)
+#
+# Only Yin installs on and drives the stick; take the lock first:  scripts/stick-lock hold yin --max 30 -- scripts/stick-noroot-home run
+# Needs a VITRE build with debug.vitre.noroot (P341, da81ae07 or later) installed, adb to the stick, and Magisk su for the setup and the restore.
+#
+# What it stands in for, and what it cannot: `adb shell` on this stick is the plain shell user (uid 2000, as su-grant notes), so the
+# commands the app sends through its own adb connection are checked by Android as the shell user, as on a stock Fire. That makes the
+# probe (step 3) a fair test of whether Fire lets the shell user disable its launcher. What it cannot show: Fire's own SELinux domain
+# for a stock device's adbd, and loopback adb being closed on newer stock builds (this stick's glass-adb-wifi module keeps 5555 open).
+# So a pass here proves the app's flow, the restore and Fire's shell-user policy; it does not prove a stock Fire accepts loopback adb.
+#
+# GUARANTEED RESTORE: the script restores on exit, on error, on Ctrl-C and on a lost session (trap), and `restore` can always be run by
+# hand. The rooted state it puts back, and verifies: com.amazon.tv.launcher and com.amazon.firehomestarter DISABLED, VITRE the HOME
+# activity, debug.vitre.noroot cleared, the app's switch record cleared. Last resort: reboot; /data/adb/service.d/start-launcher.sh
+# re-disables the Amazon launcher and starts VITRE through the HOME intent at boot. At no point is there no Home: the Amazon launcher is
+# enabled before VITRE's switch runs, and only the final restore disables it again.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/device.sh"
+
+PKG=dev.glasslauncher
+HOME_ACT="$PKG/.MainActivity"
+STOCK=(com.amazon.tv.launcher com.amazon.firehomestarter)
+OUT="${OUT:-$ROOT/reports/noroot-home}"
+MODE="${1:-plan}"
+DRY=0; [ "$MODE" = plan ] && DRY=1
+
+say() { printf '%s\n' "$*"; }
+act() { # act <what> <command...>: print, and run unless planning
+  say "  - $1"
+  [ "$DRY" = 1 ] || { shift; "$@"; }
+}
+sh() { adb -s "$ANDROID_SERIAL" shell "$@" | tr -d '\r'; }
+su() { adb -s "$ANDROID_SERIAL" shell su -c "'$*'" | tr -d '\r'; }
+home_now() { sh "cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1"; }
+disabled() { sh "pm list packages -d" | sed 's/^package://' | grep -E '^(com.amazon.tv.launcher|com.amazon.firehomestarter)$' | sort | tr '\n' ' '; }
+
+restore() {
+  trap - EXIT INT TERM HUP
+  say "== restore (rooted setup)"
+  su "pm disable-user --user 0 ${STOCK[0]}" >/dev/null 2>&1
+  su "pm disable-user --user 0 ${STOCK[1]}" >/dev/null 2>&1
+  su "cmd package set-home-activity $HOME_ACT" >/dev/null 2>&1
+  sh "setprop debug.vitre.noroot ''" >/dev/null 2>&1
+  sh "setprop debug.vitre.homepress ''" >/dev/null 2>&1
+  sh "am force-stop $PKG" >/dev/null 2>&1
+  su "rm -f /data/data/$PKG/shared_prefs/homeswitch.xml" >/dev/null 2>&1
+  sh "am start -n $HOME_ACT -a android.intent.action.MAIN -c android.intent.category.HOME" >/dev/null 2>&1
+  sleep 3
+  local h d; h="$(home_now)"; d="$(disabled)"
+  if [ "$h" = "$HOME_ACT" ] && [ "$d" = "com.amazon.firehomestarter com.amazon.tv.launcher " ]; then
+    say "restored and verified: HOME is $h; disabled: $d"; return 0
+  fi
+  say "!! RESTORE NOT VERIFIED: HOME is '$h', disabled: '$d'. Run: scripts/stick-noroot-home restore   (or reboot: start-launcher.sh does it)" >&2
+  return 1
+}
+
+if [ "$MODE" = restore ]; then restore; exit $?; fi
+case "$MODE" in plan|probe|run) ;; *) say "usage: $0 plan|probe|run|restore"; exit 2 ;; esac
+
+say "== $MODE on $ANDROID_SERIAL  ($( [ "$DRY" = 1 ] && echo 'PLAN ONLY: nothing is touched' || echo 'this changes the stick; it restores on exit' ))"
+if [ "$DRY" = 0 ]; then
+  "$ROOT/scripts/stick-lock" status >/dev/null 2>&1 || { say "refusing: take the stick lock first (scripts/stick-lock hold <who> -- $0 $MODE)"; exit 3; }
+  mkdir -p "$OUT"
+  # 0. Baseline. Only start from the expected rooted state, so the restore has a known target.
+  say "== 0. baseline"
+  h="$(home_now)"; d="$(disabled)"
+  say "  HOME is $h; disabled: $d"
+  if [ "$h" != "$HOME_ACT" ] || [ "$d" != "com.amazon.firehomestarter com.amazon.tv.launcher " ]; then
+    say "refusing: the stick is not in the expected rooted state (VITRE home, both Amazon packages disabled). Fix it first: scripts/stick-noroot-home restore"; exit 4
+  fi
+  su "id" | grep -q 'uid=0' || { say "refusing: no Magisk su (it is needed for the setup and the restore)"; exit 5; }
+  trap 'restore' EXIT INT TERM HUP
+else
+  say "== 0. baseline: expect HOME = $HOME_ACT and both Amazon packages disabled; refuse to start otherwise; take the lock; install the restore trap"
+fi
+
+say "== 1. make the stick look stock: Amazon's launcher on and the default home (a stand-in for a Fire that was never rooted)"
+act "enable ${STOCK[*]} (as root)" su "pm enable ${STOCK[0]}; pm enable ${STOCK[1]}"
+act "make Amazon's launcher the HOME activity (as root)" su "c=\$(cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ${STOCK[0]} | tail -n 1); cmd package set-home-activity \$c"
+[ "$DRY" = 1 ] || { sleep 2; say "  HOME is now: $(home_now)  (expected com.amazon.tv.launcher/...)"; }
+
+say "== 2. probe A, what the plain shell user may do to Amazon's launcher (no app, no su)"
+act "as the shell user: pm disable-user --user 0 ${STOCK[0]}  -> read the answer" bash -c "adb -s '$ANDROID_SERIAL' shell 'pm disable-user --user 0 ${STOCK[0]}' 2>&1 | tr -d '\r' | tee '$OUT/shell-disable.txt'"
+act "put it back at once if it was accepted (as root)" su "pm enable ${STOCK[0]}"
+act "as the shell user: cmd package set-home-activity $HOME_ACT, then read who answers HOME (does Success mean it took?)" bash -c "adb -s '$ANDROID_SERIAL' shell 'cmd package set-home-activity $HOME_ACT' 2>&1 | tr -d '\r' | tee '$OUT/shell-sethome.txt'; adb -s '$ANDROID_SERIAL' shell 'cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1' | tr -d '\r' | tee '$OUT/shell-home-after.txt'"
+act "make Amazon's launcher the HOME activity again, so the app's switch starts from a stock-like state (as root)" su "c=\$(cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ${STOCK[0]} | tail -n 1); cmd package set-home-activity \$c"
+say "  READ: shell-disable.txt = 'disabled-user' means Fire lets the shell user turn its launcher off (the app's main path works);"
+say "        an exception (SecurityException, 'Shell cannot change component state') means Fire refuses and the app must use the Home guard."
+say "        shell-sethome.txt 'Success' with shell-home-after.txt still Amazon's = Success that changed nothing (the engine's post-check catches it)."
+
+[ "$MODE" = probe ] && { say "== probe done; restoring"; [ "$DRY" = 1 ] || restore; exit $?; }
+
+say "== 3. the app's own switch, as on a device without root"
+act "debug.vitre.noroot 1 (VITRE ignores root for the Home switch), homepress timing on" sh "setprop debug.vitre.noroot 1; setprop debug.vitre.homepress 1"
+act "restart VITRE (the Amazon launcher is the default home; VITRE is started by hand)" sh "am force-stop $PKG; am start -n $HOME_ACT"
+[ "$DRY" = 1 ] || { adb -s "$ANDROID_SERIAL" logcat -c; }
+act "ask the app to switch: it connects to 127.0.0.1:5555 with its own key" sh "am broadcast -n $PKG/.system.DebugDumpReceiver --es home_switch on"
+say "  >> A PERSON must press Allow on the TV's 'Allow USB debugging?' prompt (tick Always allow) within 60 s, if Fire shows one. Use the remote, or scripts/key."
+say "  >> If NO prompt appears and the log says 'port 5555 is closed' / 'didn't respond', loopback adb is not reachable on this stick: stop and read the log."
+[ "$DRY" = 1 ] || { for i in $(seq 1 24); do sleep 5; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch | grep -q ' switch: ' && break; done; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch VitreHome VitreBounce | tee "$OUT/switch-log.txt" | tail -8; }
+say "== 4. what changed (the switch's result)"
+act "HOME and the disabled Amazon packages now" bash -c "echo \"HOME: \$(adb -s '$ANDROID_SERIAL' shell 'cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1' | tr -d '\r')\"; adb -s '$ANDROID_SERIAL' shell 'pm list packages -d' | tr -d '\r' | grep -i amazon.tv.launcher || echo 'amazon launcher: still enabled'"
+say "  READ: HOME = VITRE and the launcher disabled = the main path works. HOME = Amazon's and the log says 'needs the Home guard' = Fire refused, the fallback applies."
+act "press Home from an app (Settings) 5 times, 3 s apart, and read the bounce / resume lines" sh "echo see docs/home-press.md; logcat -d -s VitreHome VitreBounce | tail -12"
+
+say "== 5. undo from the app (the Original button's path)"
+act "ask the app to restore" sh "am broadcast -n $PKG/.system.DebugDumpReceiver --es home_switch restore"
+[ "$DRY" = 1 ] || { for i in $(seq 1 24); do sleep 5; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch | grep -q ' restore: ' && break; done; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch | tail -4 | tee "$OUT/restore-log.txt"; }
+say "  READ: 'restore: true' and HOME back to Amazon's, both packages enabled = the undo works."
+say "== 6. back to the rooted setup (always)"
+if [ "$DRY" = 1 ]; then say "  - restore: disable both Amazon packages, VITRE the home, clear the props and the app's switch record, verify"; else restore; exit $?; fi

@@ -135,7 +135,11 @@ object HomeSwitch {
     enum class Path { Root, SelfAdb, None }
 
     /** Root or Glass Pro keep the root path (RootFeatures); a system-app install (Glass OS) is already Home; everything else uses self-ADB. */
+    /** A test switch (`setprop debug.vitre.noroot 1`): act as a device without root even on a rooted one, to run the self-ADB path on the stick (docs/p341-no-root-test.md). */
+    fun noRootForced(): Boolean = dev.glasslauncher.dream.viz.VizGlView.prop("debug.vitre.noroot")
+
     fun path(context: Context): Path = when {
+        noRootForced() -> Path.SelfAdb
         Root.known -> Path.Root
         context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0 -> Path.None
         else -> Path.SelfAdb
