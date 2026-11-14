@@ -21,7 +21,14 @@ object TvRows {
     private val PREVIEW = Uri.parse("content://android.media.tv/preview_program")
     private val CONTINUE = Regex("continue|resume|watch next|recently watched|keep watching|up next", RegexOption.IGNORE_CASE)
 
+    /** Needs a runtime grant (the TV provider's own, "read all TV listings"): the plain APK can ask for it or have it granted over adb (P339). */
+    const val LISTINGS = "android.permission.READ_TV_LISTINGS"
+
+    /** Everything: other apps' channels and rows as well as Watch Next (a privileged system-app Glass). */
     fun available(context: Context): Boolean = context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED
+
+    /** Watch Next, which is all Continue Watching needs: the system app's access, or the plain APK's READ_TV_LISTINGS. */
+    fun watchNextAvailable(context: Context): Boolean = available(context) || context.checkSelfPermission(LISTINGS) == PackageManager.PERMISSION_GRANTED
 
     // No "browsable" filter: on Android TV the launcher decides which preview channels are browsable,
     // and Fire OS's launcher never marks any, so every app's channels read as hidden.
@@ -33,9 +40,10 @@ object TvRows {
 
     /** What you were watching, newest first: Watch Next, then apps' own "Continue watching" rows. */
     suspend fun continueWatching(context: Context): FeaturedFeed = withContext(Dispatchers.IO) {
-        check(available(context)) { "Turn on Settings › Root › System App to read other apps' rows" }
+        check(watchNextAvailable(context)) { "Allow Continue Watching in Settings › Featured Row" }
         val watchNext = query(context, WATCH_NEXT, null, null, null, "last_engagement_time_utc_millis DESC") { it.item() }
-        val channels = query(context, CHANNELS, arrayOf("_id", "display_name"), "type=?", arrayOf("TYPE_PREVIEW")) { c ->
+        // Apps' own "Continue watching" channels need the full access; with only READ_TV_LISTINGS, Watch Next is what there is.
+        val channels = if (!available(context)) emptyList() else query(context, CHANNELS, arrayOf("_id", "display_name"), "type=?", arrayOf("TYPE_PREVIEW")) { c ->
             c.long("_id") to (c.str("display_name") ?: "")
         }.filter { CONTINUE.containsMatchIn(it.second) }.map { it.first }
         val rows = channels.flatMap { id -> previewItems(context, id) }

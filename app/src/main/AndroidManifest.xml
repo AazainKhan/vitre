@@ -92,6 +92,8 @@
         app (Settings › Root › System App); as a normal app these are simply not granted.
     -->
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
+    <!-- A runtime permission (dangerous): lets a plain APK read the system Watch Next list for Continue Watching (P339). -->
+    <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
     <uses-permission android:name="com.android.providers.tv.permission.ACCESS_ALL_EPG_DATA" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="com.android.providers.tv.permission.ACCESS_WATCHED_PROGRAMS" tools:ignore="ProtectedPermissions" />
 

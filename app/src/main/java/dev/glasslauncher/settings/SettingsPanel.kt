@@ -472,9 +472,22 @@ private fun ColumnScope.FeaturedPage(model: HomeModel, cfg: LauncherConfig, f: M
     if (off) return
     // The same list does two jobs: the one source in One Source mode, and the fallback for an app with nothing to show in Focused App mode.
     SectionLabel(if (fc.mode == FeaturedMode.OneSource) "Source" else "When an app has nothing to show")
-    val tvRows = dev.glasslauncher.featured.TvRows.available(LocalContext.current)
+    val listingsContext = LocalContext.current
+    // Re-read when the permission dialog closes (the activity resumes): Continue Watching then appears in the list.
+    var tvRows by remember { mutableStateOf(dev.glasslauncher.featured.TvRows.watchNextAvailable(listingsContext)) }
+    val listingsLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(listingsLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) tvRows = dev.glasslauncher.featured.TvRows.watchNextAvailable(listingsContext) }
+        listingsLifecycle.addObserver(observer)
+        onDispose { listingsLifecycle.removeObserver(observer) }
+    }
     FeaturedSourceId.entries.filter { it != FeaturedSourceId.Off && it != FeaturedSourceId.TvApp && it != FeaturedSourceId.JustWatch && it != FeaturedSourceId.Addon && (it != FeaturedSourceId.ContinueWatching || tvRows) }.forEach { id ->
         MenuRow(sourceName(id), { setFeatured { it.copy(source = id) } }, value = if (fc.source == id) "✓" else null)
+    }
+    if (!tvRows) {
+        val activity = generateSequence(listingsContext) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()
+        MenuRow("Allow Continue Watching", { activity?.requestPermissions(arrayOf(dev.glasslauncher.featured.TvRows.LISTINGS), 0x4802) },
+            help = "Shows what you were watching in your apps. The TV asks once; if it doesn't, from a computer: adb shell pm grant ${listingsContext.packageName} ${dev.glasslauncher.featured.TvRows.LISTINGS}")
     }
     // Add-ons that supply a Top Shelf feed (switched on in Settings > Add-ons).
     val feedAddons by androidx.compose.runtime.produceState(emptyList<dev.glasslauncher.addons.AddonInfo>(), cfg.addonsEnabled) {

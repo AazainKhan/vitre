@@ -898,7 +898,7 @@ private fun SearchHost(model: HomeModel, layout: HomeLayout, active: Boolean, cl
             scope, { installed },
             {
                 // What Glass already knows: Continue Watching and the other apps' rows (with the system app permission), and the Top Shelf's titles.
-                val rows = if (dev.glasslauncher.featured.TvRows.available(context)) runCatching { dev.glasslauncher.featured.TvRows.continueWatching(context).items }.getOrDefault(emptyList()) else emptyList()
+                val rows = if (dev.glasslauncher.featured.TvRows.watchNextAvailable(context)) runCatching { dev.glasslauncher.featured.TvRows.continueWatching(context).items }.getOrDefault(emptyList()) else emptyList()
                 rows + graph.featured.state.value.feed?.items.orEmpty()
             },
             { q -> dev.glasslauncher.search.CinemetaSearch.search(searchHttp, q) },
