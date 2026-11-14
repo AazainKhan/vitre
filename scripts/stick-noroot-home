@@ -16,19 +16,25 @@
 # So a pass here proves the app's flow, the restore and Fire's shell-user policy; it does not prove a stock Fire accepts loopback adb.
 #
 # GUARANTEED RESTORE: the script restores on exit, on error, on Ctrl-C and on a lost session (trap), and `restore` can always be run by
-# hand. The rooted state it puts back, and verifies: com.amazon.tv.launcher and com.amazon.firehomestarter DISABLED, VITRE the HOME
+# hand. The rooted state it puts back, and verifies: com.amazon.tv.launcher disabled and UNINSTALLED for user 0 (as on this stick: installed=false),
+# com.amazon.firehomestarter exactly as it was (it is never touched), VITRE the HOME
 # activity, debug.vitre.noroot cleared, the app's switch record cleared, and the app's own key REMOVED from /data/misc/adb/adb_keys (as root,
 # matched by its content, verified gone, every other key untouched): the run leaves no permanent self-ADB channel on the stick. Last resort: reboot; /data/adb/service.d/start-launcher.sh
 # re-disables the Amazon launcher and starts VITRE through the HOME intent at boot. At no point is there no Home: the Amazon launcher is
-# enabled before VITRE's switch runs, and only the final restore disables it again. Only the launcher is enabled as the stand-in, never the home starter,
-# so no setup or remote-pairing screen can start.
+# brought back for user 0 (`pm install-existing`) before VITRE's switch runs, and only the final restore disables and uninstalls it again (`pm uninstall -k`,
+# keeping its data). Only the launcher is brought back as the stand-in, never the home starter, so no setup or remote-pairing screen can start.
+#
+# SCOPE on this stick: ro.adb.secure=0 and there is no adb_keys, so the stick never shows "Allow USB debugging?" and adbd accepts any client with no
+# signature. So `probe` (Fire OS 8's policy for the plain shell user) is the run this stick can prove. `run` also exercises the app's engine over
+# loopback (no prompt appears); the prompt and signature path of SelfAdb is NOT proven here (the emulator covers it): Fire prompt path unverified.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/device.sh"
 
 PKG=dev.glasslauncher
 HOME_ACT="$PKG/.MainActivity"
-STOCK=(com.amazon.tv.launcher com.amazon.firehomestarter)
+STOCK=(com.amazon.tv.launcher)
+STARTER=com.amazon.firehomestarter   # never touched; its state is recorded at the start and checked at the end
 OUT="${OUT:-$ROOT/reports/noroot-home}"
 MODE="${1:-plan}"
 DRY=0; [ "$MODE" = plan ] && DRY=1
@@ -41,7 +47,8 @@ act() { # act <what> <command...>: print, and run unless planning
 sh() { adb -s "$ANDROID_SERIAL" shell "$@" | tr -d '\r'; }
 su() { adb -s "$ANDROID_SERIAL" shell su -c "'$*'" | tr -d '\r'; }
 home_now() { sh "cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1"; }
-disabled() { sh "pm list packages -d" | sed 's/^package://' | grep -E '^(com.amazon.tv.launcher|com.amazon.firehomestarter)$' | sort | tr '\n' ' '; }
+installed() { sh "pm list packages $1" | grep -c "^package:$1\$"; }   # 1 if installed for user 0, 0 if uninstalled
+starter_state() { echo "installed=$(installed $STARTER) disabled=$(sh "pm list packages -d" | grep -c "^package:$STARTER\$")"; }
 
 # The app's own key, in adbd's format, from files/adbkey.pub (the X.509 public key the app made); empty if the app never made one.
 app_key_blob() {
@@ -67,6 +74,7 @@ remove_app_key() {
   local b64 f=/data/misc/adb/adb_keys before after
   b64="$(app_key_blob)"
   if [ -z "$b64" ]; then say "  app key: none (the app never made one, or it could not be read)"; return 0; fi
+  if ! su "[ -f $f ] && echo yes" 2>/dev/null | grep -q yes; then say "  app key: no adb_keys file on this device (ro.adb.secure=0), nothing to remove"; return 0; fi
   before="$(su "grep -c . $f" 2>/dev/null | tr -d '[:space:]')"
   if [ "$(su "grep -c -F $b64 $f" 2>/dev/null | tr -d '[:space:]')" = "0" ]; then say "  app key: not in adb_keys (nothing to remove)"; return 0; fi
   su "cp $f /data/local/tmp/adb_keys.before-noroot; grep -v -F $b64 $f > /data/local/tmp/adb_keys.new; cat /data/local/tmp/adb_keys.new > $f; rm -f /data/local/tmp/adb_keys.new" >/dev/null 2>&1
@@ -93,8 +101,9 @@ KEY_REMOVED=1
 restore() {
   trap - EXIT INT TERM HUP
   say "== restore (rooted setup)"
-  su "pm disable-user --user 0 ${STOCK[0]}" >/dev/null 2>&1
-  su "pm disable-user --user 0 ${STOCK[1]}" >/dev/null 2>&1
+  su "cmd package set-home-activity $HOME_ACT" >/dev/null 2>&1         # VITRE is Home before anything is taken away
+  su "pm disable-user --user 0 ${STOCK[0]}" >/dev/null 2>&1            # while it is installed; a no-op when it is not
+  su "pm uninstall -k --user 0 ${STOCK[0]}" >/dev/null 2>&1            # back to uninstalled for user 0, its data kept
   su "cmd package set-home-activity $HOME_ACT" >/dev/null 2>&1
   sh "setprop debug.vitre.noroot ''" >/dev/null 2>&1
   sh "setprop debug.vitre.homepress ''" >/dev/null 2>&1
@@ -103,11 +112,11 @@ restore() {
   sh "am start -n $HOME_ACT -a android.intent.action.MAIN -c android.intent.category.HOME" >/dev/null 2>&1
   remove_app_key   # the run must leave no self-ADB channel on the stick
   sleep 3
-  local h d; h="$(home_now)"; d="$(disabled)"
-  if [ "$h" = "$HOME_ACT" ] && [ "$d" = "com.amazon.firehomestarter com.amazon.tv.launcher " ] && [ "$KEY_REMOVED" = 1 ]; then
-    say "restored and verified: HOME is $h; disabled: $d; the app's key is not in adb_keys"; return 0
+  local h i st; h="$(home_now)"; i="$(installed ${STOCK[0]})"; st="$(starter_state)"
+  if [ "$h" = "$HOME_ACT" ] && [ "$i" = 0 ] && [ "$st" = "$(cat "$OUT/starter.state" 2>/dev/null || echo "$st")" ] && [ "$KEY_REMOVED" = 1 ]; then
+    say "restored and verified: HOME is $h; ${STOCK[0]} installed=$i; home starter $st (unchanged); the app's key is not in adb_keys"; return 0
   fi
-  say "!! RESTORE NOT VERIFIED: HOME is '$h', disabled: '$d', key removed: $KEY_REMOVED. Run: scripts/stick-noroot-home restore   (or reboot: start-launcher.sh does it)" >&2
+  say "!! RESTORE NOT VERIFIED: HOME is '$h', ${STOCK[0]} installed=$i, home starter '$st' (was '$(cat "$OUT/starter.state" 2>/dev/null)'), key removed: $KEY_REMOVED. Run: scripts/stick-noroot-home restore   (or reboot: start-launcher.sh does it)" >&2
   return 1
 }
 
@@ -120,19 +129,20 @@ if [ "$DRY" = 0 ]; then
   mkdir -p "$OUT"
   # 0. Baseline. Only start from the expected rooted state, so the restore has a known target.
   say "== 0. baseline"
-  h="$(home_now)"; d="$(disabled)"
-  say "  HOME is $h; disabled: $d"
-  if [ "$h" != "$HOME_ACT" ] || [ "$d" != "com.amazon.firehomestarter com.amazon.tv.launcher " ]; then
-    say "refusing: the stick is not in the expected rooted state (VITRE home, both Amazon packages disabled). Fix it first: scripts/stick-noroot-home restore"; exit 4
+  h="$(home_now)"; i="$(installed ${STOCK[0]})"; st="$(starter_state)"
+  say "  HOME is $h; ${STOCK[0]} installed=$i; home starter $st"
+  if [ "$h" != "$HOME_ACT" ] || [ "$i" != 0 ]; then
+    say "refusing: the stick is not in the expected rooted state (VITRE home, ${STOCK[0]} uninstalled for user 0). Fix it first: scripts/stick-noroot-home restore"; exit 4
   fi
+  echo "$st" > "$OUT/starter.state"
   su "id" | grep -q 'uid=0' || { say "refusing: no Magisk su (it is needed for the setup and the restore)"; exit 5; }
   trap 'restore' EXIT INT TERM HUP
 else
-  say "== 0. baseline: expect HOME = $HOME_ACT and both Amazon packages disabled; refuse to start otherwise; take the lock; install the restore trap"
+  say "== 0. baseline: expect HOME = $HOME_ACT and ${STOCK[0]} uninstalled for user 0 (installed=false); record the home starter's state (never touched); refuse to start otherwise; take the lock; install the restore trap"
 fi
 
-say "== 1. make the stick look stock: Amazon's launcher on and the default home (a stand-in for a Fire that was never rooted)"
-act "enable ONLY ${STOCK[0]} (as root; the home starter stays off, so no setup or remote-pairing screen can start)" su "pm enable ${STOCK[0]}"
+say "== 1. make the stick look stock: Amazon's launcher back for user 0 and the default home (a stand-in for a Fire that was never rooted)"
+act "bring back ONLY ${STOCK[0]} for user 0 (cmd package install-existing, as root, then enable; the home starter is never touched, so no setup or remote-pairing screen can start)" su "cmd package install-existing --user 0 ${STOCK[0]}; pm enable ${STOCK[0]}"
 act "make Amazon's launcher the HOME activity (as root)" su "c=\$(cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ${STOCK[0]} | tail -n 1); cmd package set-home-activity \$c"
 [ "$DRY" = 1 ] || { sleep 2; say "  HOME is now: $(home_now)  (expected com.amazon.tv.launcher/...)"; }
 
@@ -163,6 +173,6 @@ act "press Home from an app (Settings) 5 times, 3 s apart, and read the bounce /
 say "== 5. undo from the app (the Original button's path)"
 act "ask the app to restore" sh "am broadcast -n $PKG/.system.DebugDumpReceiver --es home_switch restore"
 [ "$DRY" = 1 ] || { for i in $(seq 1 24); do sleep 5; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch | grep -q ' restore: ' && break; done; adb -s "$ANDROID_SERIAL" logcat -d -s VitreHomeSwitch | tail -4 | tee "$OUT/restore-log.txt"; }
-say "  READ: 'restore: true' and HOME back to Amazon's, both packages enabled = the undo works."
+say "  READ: 'restore: true' and HOME back to Amazon's, the launcher enabled = the undo works."
 say "== 6. back to the rooted setup (always)"
-if [ "$DRY" = 1 ]; then say "  - restore: disable both Amazon packages, VITRE the home, clear the props and the app's switch record, REMOVE the app's key from adb_keys, verify all of it"; else restore; exit $?; fi
+if [ "$DRY" = 1 ]; then say "  - restore: VITRE the home, disable then pm uninstall -k the launcher for user 0 (installed=false again; the home starter is never touched and is verified unchanged), clear the props and the app's switch record, REMOVE the app's key from adb_keys, verify all of it"; else restore; exit $?; fi
